@@ -1,7 +1,10 @@
 import type { ProviderConfigs, ProviderId } from "../api/types.js";
 import type {
+  CodeSnippet,
   NormalizedPullRequest,
   Project,
+  PrThread,
+  PullRequestDetail,
   PullRequestFilters,
   Repository,
 } from "../api/types.js";
@@ -19,6 +22,24 @@ export interface ProviderClient {
     filters: PullRequestFilters,
     currentUserId?: string,
   ): Promise<NormalizedPullRequest[]>;
+  getPullRequest(
+    project: string,
+    repositoryId: string,
+    pullRequestId: number,
+  ): Promise<PullRequestDetail>;
+  listPullRequestThreads(
+    project: string,
+    repositoryId: string,
+    pullRequestId: number,
+  ): Promise<PrThread[]>;
+  getFileSnippet(
+    project: string,
+    repositoryId: string,
+    filePath: string,
+    commitId: string,
+    line: number,
+    radius?: number,
+  ): Promise<CodeSnippet | null>;
 }
 
 export interface ProviderDefinition {

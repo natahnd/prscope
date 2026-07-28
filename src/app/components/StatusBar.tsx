@@ -19,11 +19,11 @@ export function StatusBar({ screen, modalOpen, setupDetecting }: StatusBarProps)
     hint = "↑↓ navigate · Enter select · / search · r refresh · q quit";
   } else {
     hint =
-      "↑↓ navigate · Enter open · f filter · p project · / search · r refresh · q quit";
+      "j/k navigate/scroll · Tab focus · h/l switch view · s comment filter · Enter open · f filter · p project · / search · r refresh · q quit";
   }
 
   return (
-    <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+    <Box borderStyle="single" borderColor="gray" paddingX={1}>
       <Text dimColor>{hint}</Text>
     </Box>
   );

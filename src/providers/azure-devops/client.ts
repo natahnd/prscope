@@ -1,10 +1,15 @@
 import type {
   ApiListResponse,
+  CodeSnippet,
   ConnectionData,
   NormalizedPullRequest,
+  PrThread,
   Project,
+  PullRequestDetail,
   PullRequestFilters,
   RawPullRequest,
+  RawPullRequestDetail,
+  RawThread,
   Repository,
 } from "../../api/types.js";
 import type { AzureDevOpsProviderConfig } from "../../api/types.js";
@@ -36,6 +41,21 @@ export class AzureDevOpsClient implements ProviderClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  private async fetchText(url: string): Promise<string> {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: "text/plain",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Azure DevOps API error ${response.status}`);
+    }
+
+    return response.text();
   }
 
   private baseUrl(project?: string): string {
@@ -117,6 +137,76 @@ export class AzureDevOpsClient implements ProviderClient {
       .map((pr) => normalizePullRequest(pr, this.organization, project, currentUserId))
       .filter((pr) => matchesClientFilters(pr, filters));
   }
+
+  async getPullRequest(
+    project: string,
+    repositoryId: string,
+    pullRequestId: number,
+  ): Promise<PullRequestDetail> {
+    const url =
+      `${this.baseUrl(project)}/_apis/git/repositories/${repositoryId}` +
+      `/pullrequests/${pullRequestId}?api-version=${API_VERSION}`;
+    const raw = await this.fetchJson<RawPullRequestDetail>(url);
+    return {
+      ...normalizePullRequest(raw, this.organization, project),
+      description: raw.description ?? "",
+      sourceCommitId: raw.lastMergeSourceCommit?.commitId,
+    };
+  }
+
+  async listPullRequestThreads(
+    project: string,
+    repositoryId: string,
+    pullRequestId: number,
+  ): Promise<PrThread[]> {
+    const url =
+      `${this.baseUrl(project)}/_apis/git/repositories/${repositoryId}` +
+      `/pullrequests/${pullRequestId}/threads?api-version=${API_VERSION}`;
+    const data = await this.fetchJson<ApiListResponse<RawThread>>(url);
+
+    return data.value
+      .filter((thread) => !thread.isDeleted && thread.comments.length > 0)
+      .map((thread) => normalizeThread(thread));
+  }
+
+  async getFileSnippet(
+    project: string,
+    repositoryId: string,
+    filePath: string,
+    commitId: string,
+    line: number,
+    radius = 5,
+  ): Promise<CodeSnippet | null> {
+    try {
+      const params = new URLSearchParams({
+        path: filePath,
+        "versionDescriptor.version": commitId,
+        "versionDescriptor.versionType": "commit",
+        "api-version": API_VERSION,
+        $format: "text",
+      });
+      const url =
+        `${this.baseUrl(project)}/_apis/git/repositories/${repositoryId}` +
+        `/items?${params.toString()}`;
+      const text = await this.fetchText(url);
+      const allLines = text.split(/\r\n|\n/);
+
+      const startLine = Math.max(1, line - radius);
+      const endLine = Math.min(allLines.length, line + radius);
+      const lines = [];
+      for (let n = startLine; n <= endLine; n++) {
+        lines.push({
+          number: n,
+          content: allLines[n - 1] ?? "",
+          highlight: n === line,
+        });
+      }
+
+      return { filePath, lines, centerLine: line };
+    } catch {
+      return null;
+    }
+  }
 }
 
 export function createAzureDevOpsClient(
@@ -153,6 +243,7 @@ function normalizePullRequest(
     status: pr.status,
     isDraft: pr.isDraft ?? false,
     repoName,
+    repositoryId: pr.repository.id,
     author: pr.createdBy.displayName,
     reviewers,
     targetBranch: pr.targetRefName.replace(/^refs\/heads\//, ""),
@@ -160,6 +251,30 @@ function normalizePullRequest(
     url: `https://dev.azure.com/${organization}/${encodeURIComponent(project)}/_git/${encodeURIComponent(repoName)}/pullrequest/${pr.pullRequestId}`,
     mergeStatus: pr.mergeStatus,
     needsMyReview,
+  };
+}
+
+function normalizeThread(thread: RawThread): PrThread {
+  const context = thread.threadContext;
+  const position = context?.rightFileStart ?? context?.leftFileStart;
+  const endPosition = context?.rightFileEnd ?? context?.leftFileEnd;
+  const lineEnd =
+    endPosition && position && endPosition.line !== position.line ? endPosition.line : undefined;
+
+  return {
+    id: thread.id,
+    status: thread.status ?? "unknown",
+    filePath: context?.filePath,
+    line: position?.line,
+    lineEnd,
+    comments: thread.comments
+      .filter((c) => (c.commentType ?? "text") !== "system" && c.content)
+      .map((c) => ({
+        id: c.id,
+        author: c.author.displayName,
+        content: c.content ?? "",
+        publishedAt: c.publishedDate,
+      })),
   };
 }
 
@@ -176,6 +291,8 @@ function matchesClientFilters(
   if (filters.reviewerMe) {
     if (!pr.reviewers.some((r) => r.isCurrentUser)) return false;
   }
+  if (filters.draftFilter === "hide" && pr.isDraft) return false;
+  if (filters.draftFilter === "only" && !pr.isDraft) return false;
   if (filters.search) {
     const q = filters.search.toLowerCase();
     const haystack = `${pr.repoName} ${pr.title} ${pr.author}`.toLowerCase();

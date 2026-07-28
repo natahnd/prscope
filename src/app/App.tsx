@@ -19,31 +19,31 @@ import {
 } from "../config/store.js";
 import { getProvider } from "../providers/registry.js";
 import type { ProviderClient, ProviderDefinition } from "../providers/types.js";
-import { DetailPanel } from "./components/DetailPanel.js";
 import {
-  FilterModal,
   filtersToLabels,
-  filtersToModalState,
   modalStateToFilters,
   type FilterModalState,
 } from "./components/FilterModal.js";
-import { Header } from "./components/Header.js";
 import { AdoProviderSetup, ProviderPicker } from "./components/ProviderPicker.js";
-import { FilterBar, PrTable } from "./components/PrTable.js";
+import { type PanelFocus, PrReviewLayout } from "./components/PrReviewLayout.js";
+import {
+  nextCommentStatusFilter,
+  type CommentStatusFilter,
+  type RightPanelMode,
+} from "./components/PrRightPanel.js";
 import { ProjectPicker } from "./components/ProjectPicker.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { usePullRequestDetail } from "./hooks/usePullRequestDetail.js";
+import { useTerminalSize } from "./hooks/useTerminalSize.js";
 
 interface AppProps {
   initialProject?: string;
   initialFilters: PullRequestFilters;
 }
 
-function resolveInitialScreen(
-  configured: boolean,
-  initialProject?: string,
-): AppScreen {
+function resolveInitialScreen(configured: boolean, project?: string): AppScreen {
   if (!configured) return "providerSelect";
-  if (initialProject) return "prList";
+  if (project) return "prList";
   return "projectSelect";
 }
 
@@ -77,6 +77,14 @@ export function App({ initialProject, initialFilters }: AppProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
+  const [panelFocus, setPanelFocus] = useState<PanelFocus>("list");
+  const [rightMode, setRightMode] = useState<RightPanelMode>("description");
+  const [commentStatusFilter, setCommentStatusFilter] = useState<CommentStatusFilter>("all");
+  const [descriptionScroll, setDescriptionScroll] = useState(0);
+  const [commentsScroll, setCommentsScroll] = useState(0);
+  const [rightMaxScroll, setRightMaxScroll] = useState(0);
+
+  const terminalSize = useTerminalSize();
 
   const initClient = useCallback(
     async (providerId: ProviderId) => {
@@ -103,7 +111,11 @@ export function App({ initialProject, initialFilters }: AppProps) {
     void (async () => {
       const config = await loadConfig();
       const configured = isConfiguredProvider(config);
-      setScreen(resolveInitialScreen(configured, initialProject));
+      const targetProject = initialProject ?? getLastProject(config);
+      setScreen(resolveInitialScreen(configured, targetProject));
+      if (configured && targetProject) {
+        setSelectedProject(targetProject);
+      }
 
       if (configured && config.activeProvider) {
         try {
@@ -170,12 +182,15 @@ export function App({ initialProject, initialFilters }: AppProps) {
   }, [selectedProject, screen, filters, loadPullRequests, client]);
 
   const displayedPrs = useMemo(() => {
-    if (!filters.search && !searchQuery) return pullRequests;
     const q = (filters.search ?? searchQuery).toLowerCase();
-    return pullRequests.filter((pr) => {
-      const haystack = `${pr.repoName} ${pr.title} ${pr.author}`.toLowerCase();
-      return haystack.includes(q);
-    });
+    const filtered = !q
+      ? pullRequests
+      : pullRequests.filter((pr) => {
+          const haystack = `${pr.repoName} ${pr.title} ${pr.author}`.toLowerCase();
+          return haystack.includes(q);
+        });
+    // Grouped by repo in the list panel, so keep this order in sync with that grouping.
+    return [...filtered].sort((a, b) => a.repoName.localeCompare(b.repoName));
   }, [pullRequests, filters.search, searchQuery]);
 
   const safeSelectedIndex =
@@ -185,6 +200,31 @@ export function App({ initialProject, initialFilters }: AppProps) {
     ...filters,
     search: filters.search ?? (searchQuery || undefined),
   });
+
+  const detailState = usePullRequestDetail(client, selectedProject, selectedPr);
+
+  useEffect(() => {
+    setDescriptionScroll(0);
+    setCommentsScroll(0);
+  }, [selectedPr?.repositoryId, selectedPr?.id]);
+
+  useEffect(() => {
+    setCommentsScroll(0);
+  }, [commentStatusFilter]);
+
+  const rightScroll = rightMode === "description" ? descriptionScroll : commentsScroll;
+
+  const handleRightMaxScrollChange = useCallback((maxScroll: number) => {
+    setRightMaxScroll(maxScroll);
+  }, []);
+
+  useEffect(() => {
+    if (rightMode === "description") {
+      setDescriptionScroll((s) => Math.min(s, rightMaxScroll));
+    } else {
+      setCommentsScroll((s) => Math.min(s, rightMaxScroll));
+    }
+  }, [rightMaxScroll, rightMode]);
 
   const handleProviderSelect = (provider: ProviderDefinition) => {
     if (!provider.enabled) return;
@@ -277,12 +317,44 @@ export function App({ initialProject, initialFilters }: AppProps) {
       return;
     }
 
+    if (key.tab) {
+      setPanelFocus((f) => (f === "list" ? "detail" : "list"));
+      return;
+    }
     if (key.upArrow || input === "k") {
-      setSelectedIndex((i) => Math.max(0, i - 1));
+      if (panelFocus === "detail") {
+        if (rightMode === "description") {
+          setDescriptionScroll((i) => Math.max(0, i - 1));
+        } else {
+          setCommentsScroll((i) => Math.max(0, i - 1));
+        }
+      } else {
+        setSelectedIndex((i) => Math.max(0, i - 1));
+      }
       return;
     }
     if (key.downArrow || input === "j") {
-      setSelectedIndex((i) => Math.min(Math.max(displayedPrs.length - 1, 0), i + 1));
+      if (panelFocus === "detail") {
+        if (rightMode === "description") {
+          setDescriptionScroll((i) => Math.min(rightMaxScroll, i + 1));
+        } else {
+          setCommentsScroll((i) => Math.min(rightMaxScroll, i + 1));
+        }
+      } else {
+        setSelectedIndex((i) => Math.min(Math.max(displayedPrs.length - 1, 0), i + 1));
+      }
+      return;
+    }
+    if (panelFocus === "detail" && (key.leftArrow || input === "h")) {
+      setRightMode("description");
+      return;
+    }
+    if (panelFocus === "detail" && (key.rightArrow || input === "l")) {
+      setRightMode("comments");
+      return;
+    }
+    if (panelFocus === "detail" && rightMode === "comments" && input === "s") {
+      setCommentStatusFilter((f) => nextCommentStatusFilter(f));
       return;
     }
     if ((key.return || input === "o") && selectedPr) {
@@ -369,42 +441,31 @@ export function App({ initialProject, initialFilters }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      <Header
+      <PrReviewLayout
+        terminalSize={terminalSize}
         organization={displayContext}
         project={selectedProject ?? ""}
-        count={displayedPrs.length}
+        pullRequests={displayedPrs}
+        selectedIndex={safeSelectedIndex}
         loading={prsLoading}
         error={prsError}
         refreshedAt={refreshedAt}
+        filterLabels={filterLabels}
+        searchMode={searchMode}
+        searchQuery={searchQuery}
+        filterModalOpen={filterModalOpen}
+        repositories={repositories}
+        filters={filters}
+        onApplyFilters={handleApplyFilters}
+        onCloseFilterModal={() => setFilterModalOpen(false)}
+        focus={panelFocus}
+        detailState={detailState}
+        rightMode={rightMode}
+        commentStatusFilter={commentStatusFilter}
+        rightScroll={rightScroll}
+        onRightMaxScrollChange={handleRightMaxScrollChange}
       />
-      <FilterBar filters={filterLabels} />
-      {searchMode && (
-        <Box marginTop={1}>
-          <TextSearchPrompt query={searchQuery} />
-        </Box>
-      )}
-      {filterModalOpen ? (
-        <FilterModal
-          repositories={repositories}
-          initial={filtersToModalState(filters)}
-          onApply={handleApplyFilters}
-          onClose={() => setFilterModalOpen(false)}
-        />
-      ) : (
-        <PrTable pullRequests={displayedPrs} selectedIndex={safeSelectedIndex} />
-      )}
-      <DetailPanel pullRequest={selectedPr} />
       <StatusBar screen="prList" modalOpen={filterModalOpen} />
-    </Box>
-  );
-}
-
-function TextSearchPrompt({ query }: { query: string }) {
-  return (
-    <Box>
-      <Text dimColor>/ search: </Text>
-      <Text>{query}</Text>
-      <Text dimColor> (Enter apply · Esc clear)</Text>
     </Box>
   );
 }

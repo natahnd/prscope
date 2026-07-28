@@ -1,4 +1,5 @@
 export type PullRequestStatus = "active" | "completed" | "abandoned" | "all";
+export type DraftFilter = "all" | "hide" | "only";
 
 export type ProviderId = "azure-devops" | "github";
 
@@ -51,6 +52,7 @@ export interface NormalizedPullRequest {
   status: string;
   isDraft: boolean;
   repoName: string;
+  repositoryId: string;
   author: string;
   reviewers: AdoReviewer[];
   targetBranch: string;
@@ -58,6 +60,40 @@ export interface NormalizedPullRequest {
   url: string;
   mergeStatus: string;
   needsMyReview: boolean;
+  description?: string;
+}
+
+export interface PullRequestDetail extends NormalizedPullRequest {
+  description: string;
+  sourceCommitId?: string;
+}
+
+export interface PrComment {
+  id: number;
+  author: string;
+  content: string;
+  publishedAt: string;
+}
+
+export interface PrThread {
+  id: number;
+  status: string;
+  filePath?: string;
+  line?: number;
+  lineEnd?: number;
+  comments: PrComment[];
+}
+
+export interface CodeSnippetLine {
+  number: number;
+  content: string;
+  highlight: boolean;
+}
+
+export interface CodeSnippet {
+  filePath: string;
+  lines: CodeSnippetLine[];
+  centerLine: number;
 }
 
 export interface PullRequestFilters {
@@ -69,6 +105,7 @@ export interface PullRequestFilters {
   reviewerId?: string;
   reviewerMe?: boolean;
   authorMe?: boolean;
+  draftFilter?: DraftFilter;
   search?: string;
 }
 
@@ -111,6 +148,40 @@ export interface RawPullRequest {
     vote: number;
     isRequired?: boolean;
   }>;
+}
+
+export interface RawPullRequestDetail extends RawPullRequest {
+  description?: string;
+  lastMergeSourceCommit?: { commitId: string };
+}
+
+export interface RawCommentPosition {
+  line: number;
+  offset: number;
+}
+
+export interface RawCommentThreadContext {
+  filePath: string;
+  rightFileStart?: RawCommentPosition;
+  rightFileEnd?: RawCommentPosition;
+  leftFileStart?: RawCommentPosition;
+  leftFileEnd?: RawCommentPosition;
+}
+
+export interface RawComment {
+  id: number;
+  content?: string;
+  publishedDate: string;
+  commentType?: string;
+  author: { displayName: string };
+}
+
+export interface RawThread {
+  id: number;
+  status?: string;
+  isDeleted?: boolean;
+  threadContext?: RawCommentThreadContext | null;
+  comments: RawComment[];
 }
 
 export type AppScreen =

@@ -6,10 +6,10 @@ A keyboard-driven terminal UI for reviewing pull requests across repositories. A
 
 - **Add Provider** flow on first run — pick Azure DevOps (GitHub shown as coming soon)
 - **Auto-detect org** from `az devops configure` when setting up Azure DevOps
-- **Project picker** with last-used project pre-selected
-- **PR overview** — all active PRs across every repo in one table
-- **Filters** — status, repository, reviewer/author (me), text search
-- **Keyboard navigation** — j/k, Enter to open in browser, `p` to switch projects
+- **Remembers your last project** — launches straight into it next time; the project picker only shows on first run or when you press `p`
+- **Lazygit-style split layout** — PR list on the left, grouped by repository; a fixed-height panel on the right toggles between description and comments (`h`/`l`), both independently scrollable so the UI never jumps around
+- **Filters** — status, repository, drafts (show all/hide/only), reviewer/author (me), text search
+- **Keyboard navigation** — j/k, Tab to switch panel focus, h/l to switch description/comments, Enter to open in browser, `p` to switch projects
 - **Dual auth** — Azure CLI session or Personal Access Token
 
 ## Requirements
@@ -31,7 +31,7 @@ bun link   # optional: install `pr-reviews` globally
 # First run: Add Provider → Azure DevOps → org (auto-detected if az devops configured)
 bun run dev
 
-# Returning user: straight to project picker
+# Returning user: straight to your last-used project's PR list
 bun run dev
 
 # Or after linking
@@ -108,9 +108,14 @@ pr-reviews config show
 
 ### PR list
 
+The right side is a single fixed-height panel that toggles between **Description** and **Comments** for the selected PR (`h`/`l` to switch, `Tab` to move focus there). Both views are independently scrollable so long descriptions or comment threads never resize the UI. Comments are shown as `path/to/file: Line X` (or `Line X-Y` for a range) followed by the full, untruncated comment text. Descriptions and comment bodies are rendered as Markdown (glow-style, via `marked`/`marked-terminal`) — headings, bold/italic, lists, code spans, and tables get proper terminal styling instead of raw `#`/`**`/`` ` `` syntax. In Comments, press `s` to cycle between all comments, active-only, and resolved-only; resolved threads are also tagged (e.g. `[fixed]`) and shown in green even when the filter is off.
+
 | Key | Action |
 |-----|--------|
-| ↑/↓ or j/k | Navigate |
+| ↑/↓ or j/k | Navigate PR list, or scroll the description/comments panel when it's focused |
+| Tab | Toggle focus between PR list and the description/comments panel |
+| h/l or ←/→ | Switch the right panel between Description and Comments (when it's focused) |
+| s | Cycle the comments filter: all → active → resolved (when Comments is focused) |
 | Enter / o | Open PR in browser |
 | p | Switch project |
 | f | Filter modal |
