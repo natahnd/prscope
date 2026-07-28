@@ -10,7 +10,7 @@ A keyboard-driven terminal UI for reviewing pull requests across repositories. A
 - **Lazygit-style split layout** — PR list on the left, grouped by repository; a fixed-height panel on the right toggles between description and comments (`h`/`l`), both independently scrollable so the UI never jumps around
 - **Filters** — status, repository, drafts (show all/hide/only), active comments (show all/hide/only — see which PRs still need action), reviewer/author (me), text search
 - **Keyboard navigation** — j/k, Tab to switch panel focus, h/l to switch description/comments, Enter to open in browser, `p` to switch projects
-- **Mouse support** — click a PR to select it, click either panel to focus it, drag the divider between panels to resize them, scroll the wheel to navigate/scroll
+- **Mouse support** — click a PR to select it, click either panel to focus it, drag the divider between panels to resize them, scroll the wheel to navigate/scroll, drag-select text in the description/comments panel to copy it (confined to that panel, never bleeds into the PR list)
 - **Dual auth** — Azure CLI session or Personal Access Token
 
 ## Requirements
@@ -127,6 +127,8 @@ The list itself fetches each PR's comment thread status in the background and ta
 | q | Quit |
 
 **Mouse:** click a PR row to select it and view its details; click the list or the right panel to focus it; drag the border between the two panels left/right to resize them; scroll the wheel over either panel to navigate the list or scroll the focused content.
+
+**Text selection:** click-and-drag over the description/comments panel selects text the same way you'd expect in a normal terminal, but the selection is confined to that panel — dragging out over the PR list (or past the panel's edges) never pulls list content into it. Releasing the drag copies the selected text to your system clipboard via an OSC 52 escape sequence, which works locally and over SSH on most modern terminals (iTerm2, Kitty, WezTerm, Windows Terminal, etc). A plain click with no drag just focuses the panel and clears any existing selection.
 
 ## Development
 

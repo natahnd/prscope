@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import open from "open";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -33,6 +33,7 @@ import {
 } from "./components/PrRightPanel.js";
 import { ProjectPicker } from "./components/ProjectPicker.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { buildOsc52CopySequence } from "./utils/clipboard.js";
 import { useMouse, type MouseInputEvent } from "./hooks/useMouse.js";
 import { usePrCommentActivity } from "./hooks/usePrCommentActivity.js";
 import { usePullRequestDetail } from "./hooks/usePullRequestDetail.js";
@@ -45,6 +46,19 @@ import {
 } from "./utils/layoutGeometry.js";
 import { prKey } from "./utils/prKey.js";
 import { resolveListClickRow } from "./utils/prListRows.js";
+import {
+  buildRightPanelLines,
+  CONTENT_TOP_ROWS,
+  CHROME_ROWS as RIGHT_PANEL_CHROME_ROWS,
+  getVisibleRightPanelLines,
+  rightPanelContentWidth,
+} from "./utils/rightPanelLines.js";
+import {
+  extractSelectedText,
+  normalizeSelection,
+  type SelectionPoint,
+  type SelectionRange,
+} from "./utils/textSelection.js";
 
 interface AppProps {
   initialProject?: string;
@@ -95,8 +109,16 @@ export function App({ initialProject, initialFilters }: AppProps) {
   const [rightMaxScroll, setRightMaxScroll] = useState(0);
   const [leftWidthRatio, setLeftWidthRatio] = useState(DEFAULT_LEFT_WIDTH_RATIO);
   const draggingDividerRef = useRef(false);
+  const [rightSelection, setRightSelection] = useState<SelectionRange | null>(null);
+  const draggingSelectionRef = useRef(false);
+  // Mirrors `rightSelection` but read/written synchronously during mouse-event
+  // processing, since a single stdin chunk can carry several drag events that
+  // must see each other's updates before React re-renders (state updates only
+  // land after the whole batch of events in the chunk has been processed).
+  const selectionDataRef = useRef<SelectionRange | null>(null);
 
   const terminalSize = useTerminalSize();
+  const { stdout } = useStdout();
 
   const initClient = useCallback(
     async (providerId: ProviderId) => {
@@ -236,6 +258,16 @@ export function App({ initialProject, initialFilters }: AppProps) {
     setCommentsScroll(0);
   }, [commentStatusFilter]);
 
+  // The right panel's text selection is anchored to absolute line indices
+  // into its content; once that content is swapped out from under it
+  // (different PR, or description<->comments), those indices no longer mean
+  // anything, so drop the selection rather than risk highlighting/copying
+  // unrelated text.
+  useEffect(() => {
+    selectionDataRef.current = null;
+    setRightSelection(null);
+  }, [selectedPr?.repositoryId, selectedPr?.id, rightMode, commentStatusFilter]);
+
   const rightScroll = rightMode === "description" ? descriptionScroll : commentsScroll;
 
   const handleRightMaxScrollChange = useCallback((maxScroll: number) => {
@@ -259,6 +291,48 @@ export function App({ initialProject, initialFilters }: AppProps) {
     [terminalSize, prsError, leftWidthRatio],
   );
 
+  // Mirrors what PrRightPanel renders, so mouse hit-testing/selection can map
+  // (x, y) to the exact same content lines without duplicating how they're
+  // built. See rightPanelLines.ts.
+  const rightContentWidth = rightPanelContentWidth(geometry.rightWidth);
+  const rightPanelLines = useMemo(
+    () =>
+      buildRightPanelLines({
+        pullRequest: selectedPr,
+        detailState,
+        mode: rightMode,
+        commentStatusFilter,
+        contentWidth: rightContentWidth,
+      }),
+    [selectedPr, detailState, rightMode, commentStatusFilter, rightContentWidth],
+  );
+  const rightContentHeight = Math.max(1, geometry.panelHeight - RIGHT_PANEL_CHROME_ROWS);
+  const { clampedScroll: rightClampedScroll } = getVisibleRightPanelLines(
+    rightPanelLines,
+    rightScroll,
+    rightContentHeight,
+  );
+
+  // Resolves a mouse event to a (row, col) position in the right panel's
+  // content, in absolute (unscrolled) line-index terms. `strict` rejects
+  // clicks outside the actual content rows (e.g. on the title/tab-strip
+  // chrome) — used when starting a selection. Continuing a drag clamps
+  // instead, so selecting still works smoothly once the pointer strays past
+  // the panel's edges.
+  const resolveRightPanelPoint = useCallback(
+    (event: MouseInputEvent, strict: boolean): SelectionPoint | null => {
+      if (rightPanelLines.length === 0) return null;
+      const { reservedTop, leftWidth } = geometry;
+      const viewportRow = event.y - reservedTop - CONTENT_TOP_ROWS;
+      if (strict && (viewportRow < 0 || viewportRow >= rightContentHeight)) return null;
+      const col = Math.max(0, Math.min(event.x - leftWidth - 2, rightContentWidth - 1));
+      const clampedViewportRow = Math.max(0, Math.min(viewportRow, rightContentHeight - 1));
+      const row = Math.max(0, Math.min(rightClampedScroll + clampedViewportRow, rightPanelLines.length - 1));
+      return { row, col };
+    },
+    [geometry, rightPanelLines.length, rightContentHeight, rightContentWidth, rightClampedScroll],
+  );
+
   const handleMouseEvent = useCallback(
     (event: MouseInputEvent) => {
       if (screen !== "prList" || filterModalOpen) return;
@@ -269,12 +343,33 @@ export function App({ initialProject, initialFilters }: AppProps) {
         if (draggingDividerRef.current) {
           const ratio = event.x / Math.max(1, terminalSize.columns);
           setLeftWidthRatio(Math.min(MAX_LEFT_WIDTH_RATIO, Math.max(MIN_LEFT_WIDTH_RATIO, ratio)));
+          return;
+        }
+        if (draggingSelectionRef.current && selectionDataRef.current) {
+          const point = resolveRightPanelPoint(event, false);
+          if (point) {
+            const next = { anchor: selectionDataRef.current.anchor, focus: point };
+            selectionDataRef.current = next;
+            setRightSelection(next);
+          }
         }
         return;
       }
 
       if (event.action === "up") {
         draggingDividerRef.current = false;
+        if (draggingSelectionRef.current) {
+          draggingSelectionRef.current = false;
+          const data = selectionDataRef.current;
+          const moved = data && (data.anchor.row !== data.focus.row || data.anchor.col !== data.focus.col);
+          if (data && moved) {
+            const text = extractSelectedText(rightPanelLines, normalizeSelection(data));
+            if (text && stdout) stdout.write(buildOsc52CopySequence(text));
+          } else {
+            selectionDataRef.current = null;
+            setRightSelection(null);
+          }
+        }
         return;
       }
 
@@ -296,6 +391,12 @@ export function App({ initialProject, initialFilters }: AppProps) {
 
       if (!withinMainRow) return;
 
+      // A fresh click always starts a new interaction, so any previous
+      // right-panel text selection is stale — drop it before deciding what
+      // this click does.
+      selectionDataRef.current = null;
+      setRightSelection(null);
+
       // Small hit-zone straddling the seam between the two bordered panels.
       if (Math.abs(event.x - leftWidth) <= 1) {
         draggingDividerRef.current = true;
@@ -315,6 +416,13 @@ export function App({ initialProject, initialFilters }: AppProps) {
         if (prIndex !== null) setSelectedIndex(prIndex);
       } else {
         setPanelFocus("detail");
+        if (event.button === "left") {
+          const point = resolveRightPanelPoint(event, true);
+          if (point) {
+            selectionDataRef.current = { anchor: point, focus: point };
+            draggingSelectionRef.current = true;
+          }
+        }
       }
     },
     [
@@ -327,10 +435,18 @@ export function App({ initialProject, initialFilters }: AppProps) {
       safeSelectedIndex,
       rightMode,
       rightMaxScroll,
+      rightPanelLines,
+      resolveRightPanelPoint,
+      stdout,
     ],
   );
 
   useMouse(handleMouseEvent);
+
+  const normalizedRightSelection = useMemo(
+    () => (rightSelection ? normalizeSelection(rightSelection) : null),
+    [rightSelection],
+  );
 
   const handleProviderSelect = (provider: ProviderDefinition) => {
     if (!provider.enabled) return;
@@ -572,6 +688,7 @@ export function App({ initialProject, initialFilters }: AppProps) {
         onRightMaxScrollChange={handleRightMaxScrollChange}
         leftWidthRatio={leftWidthRatio}
         commentActivity={commentActivity}
+        rightSelection={normalizedRightSelection}
       />
       <StatusBar screen="prList" modalOpen={filterModalOpen} />
     </Box>

@@ -8,6 +8,7 @@ import type { CommentActivity } from "../hooks/usePrCommentActivity.js";
 import type { PullRequestDetailState } from "../hooks/usePullRequestDetail.js";
 import type { TerminalSize } from "../hooks/useTerminalSize.js";
 import { computeLayoutGeometry } from "../utils/layoutGeometry.js";
+import type { NormalizedSelection } from "../utils/textSelection.js";
 import { FilterModal, filtersToModalState, type FilterModalState } from "./FilterModal.js";
 import { Header } from "./Header.js";
 import { PrListPanel } from "./PrListPanel.js";
@@ -40,6 +41,7 @@ interface PrReviewLayoutProps {
   onRightMaxScrollChange: (maxScroll: number) => void;
   leftWidthRatio: number;
   commentActivity: Map<string, CommentActivity>;
+  rightSelection: NormalizedSelection | null;
 }
 
 export function PrReviewLayout({
@@ -67,6 +69,7 @@ export function PrReviewLayout({
   onRightMaxScrollChange,
   leftWidthRatio,
   commentActivity,
+  rightSelection,
 }: PrReviewLayoutProps) {
   const { panelHeight: mainHeight, leftWidth, rightWidth } = computeLayoutGeometry(terminalSize, {
     hasError: Boolean(error),
@@ -115,6 +118,7 @@ export function PrReviewLayout({
             height={mainHeight}
             focused={focus === "detail"}
             onMaxScrollChange={onRightMaxScrollChange}
+            selection={rightSelection}
           />
         </Box>
       )}

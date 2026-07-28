@@ -1,15 +1,21 @@
 import cliTruncate from "cli-truncate";
 import { Box, Text } from "ink";
-import { formatDistanceToNow } from "date-fns";
 import { useEffect, useMemo } from "react";
-import type { NormalizedPullRequest, PrComment, PrThread } from "../../api/types.js";
+import type { NormalizedPullRequest } from "../../api/types.js";
 import type { PullRequestDetailState } from "../hooks/usePullRequestDetail.js";
-import { isResolvedStatus } from "../utils/commentStatus.js";
-import { renderMarkdownToLines } from "../utils/renderMarkdown.js";
-import { stripHtml } from "../utils/wrapText.js";
+import {
+  buildRightPanelLines,
+  buildSections,
+  CHROME_ROWS,
+  type CommentStatusFilter,
+  type ContentLine,
+  getVisibleRightPanelLines,
+  rightPanelContentWidth,
+  type RightPanelMode,
+} from "../utils/rightPanelLines.js";
+import { rowHighlightRange, type NormalizedSelection } from "../utils/textSelection.js";
 
-export type RightPanelMode = "description" | "comments";
-export type CommentStatusFilter = "all" | "active" | "resolved";
+export type { CommentStatusFilter, RightPanelMode };
 
 export function nextCommentStatusFilter(current: CommentStatusFilter): CommentStatusFilter {
   if (current === "all") return "active";
@@ -27,19 +33,8 @@ interface PrRightPanelProps {
   height: number;
   focused: boolean;
   onMaxScrollChange: (maxScroll: number) => void;
+  selection: NormalizedSelection | null;
 }
-
-interface ContentLine {
-  key: string;
-  kind: "header" | "meta" | "body" | "markdown" | "blank" | "empty";
-  text: string;
-  accent?: string;
-}
-
-type Section = { type: "general"; comments: PrComment[] } | { type: "file"; thread: PrThread };
-
-// border (top+bottom) + title line + meta line + tab-strip margin + tab-strip line
-const CHROME_ROWS = 6;
 
 export function PrRightPanel({
   pullRequest,
@@ -51,59 +46,27 @@ export function PrRightPanel({
   height,
   focused,
   onMaxScrollChange,
+  selection,
 }: PrRightPanelProps) {
-  const contentWidth = Math.max(10, width - 4);
+  const contentWidth = rightPanelContentWidth(width);
   const contentHeight = Math.max(1, height - CHROME_ROWS);
-  const { detail, threads, loading, error } = detailState;
+  const { threads } = detailState;
 
   const sections = useMemo(
     () => buildSections(threads, commentStatusFilter),
     [threads, commentStatusFilter],
   );
 
-  const lines = useMemo<ContentLine[]>(() => {
-    if (!pullRequest) return [];
-    if (loading) {
-      return [
-        {
-          key: "loading",
-          kind: "empty",
-          text: mode === "description" ? "Loading description…" : "Loading comments…",
-        },
-      ];
-    }
-    if (error) return [{ key: "error", kind: "empty", text: error }];
+  const lines = useMemo<ContentLine[]>(
+    () => buildRightPanelLines({ pullRequest, detailState, mode, commentStatusFilter, contentWidth }),
+    [pullRequest, detailState, mode, commentStatusFilter, contentWidth],
+  );
 
-    if (mode === "description") {
-      const description = detail?.description?.trim();
-      if (!description) return [{ key: "empty", kind: "empty", text: "No description provided." }];
-      return renderMarkdownToLines(description, contentWidth).map((text, i) => ({
-        key: `d-${i}`,
-        kind: "markdown",
-        text,
-      }));
-    }
-
-    if (sections.length === 0) {
-      const emptyText =
-        commentStatusFilter === "all"
-          ? "No comments on this pull request."
-          : `No ${commentStatusFilter} comments on this pull request.`;
-      return [{ key: "empty", kind: "empty", text: emptyText }];
-    }
-    return buildCommentLines(sections, contentWidth);
-  }, [
-    pullRequest,
-    loading,
-    error,
-    mode,
-    detail?.description,
-    sections,
-    contentWidth,
-    commentStatusFilter,
-  ]);
-
-  const maxScroll = Math.max(0, lines.length - contentHeight);
+  const { visible, clampedScroll, maxScroll } = getVisibleRightPanelLines(
+    lines,
+    scrollOffset,
+    contentHeight,
+  );
 
   useEffect(() => {
     onMaxScrollChange(maxScroll);
@@ -116,9 +79,6 @@ export function PrRightPanel({
       </Box>
     );
   }
-
-  const clampedScroll = Math.min(scrollOffset, maxScroll);
-  const visible = lines.slice(clampedScroll, clampedScroll + contentHeight);
 
   // Truncate ourselves with cli-truncate instead of Ink's `wrap="truncate-end"`,
   // and see the flexShrink={0} wrapper below for why — both are needed to
@@ -174,99 +134,82 @@ export function PrRightPanel({
         )}
       </Box>
       <Box flexDirection="column">
-        {visible.map((line) => (
-          <ContentLineRow key={line.key} line={line} />
+        {visible.map((line, i) => (
+          <ContentLineRow
+            key={line.key}
+            line={line}
+            highlight={rowHighlightRange(clampedScroll + i, selection)}
+            contentWidth={contentWidth}
+          />
         ))}
       </Box>
     </Box>
   );
 }
 
-function ContentLineRow({ line }: { line: ContentLine }) {
+function ContentLineRow({
+  line,
+  highlight,
+  contentWidth,
+}: {
+  line: ContentLine;
+  highlight: { start: number; end: number } | null;
+  contentWidth: number;
+}) {
   if (line.kind === "empty") {
     return <Text dimColor>{line.text}</Text>;
   }
   if (line.kind === "header") {
     return (
       <Text bold color={line.accent ?? "magenta"}>
-        {line.text}
+        {highlightedText(line.text, highlight, contentWidth)}
       </Text>
     );
   }
   if (line.kind === "meta") {
-    return <Text dimColor>{line.text}</Text>;
+    return <Text dimColor>{highlightedText(line.text, highlight, contentWidth)}</Text>;
   }
   if (line.kind === "blank") {
-    return <Text> </Text>;
+    return <Text>{highlightedText(" ", highlight, contentWidth)}</Text>;
   }
   if (line.kind === "markdown") {
     // Already pre-truncated to width by renderMarkdownToLines (cli-truncate),
     // so no need for Ink's own wrap="truncate-end" (which has a re-render bug).
-    return <Text>{line.text || " "}</Text>;
+    return <Text>{highlightedText(line.text || " ", highlight, contentWidth)}</Text>;
   }
-  return <Text>{line.text || " "}</Text>;
+  return <Text>{highlightedText(line.text || " ", highlight, contentWidth)}</Text>;
 }
 
-function buildSections(threads: PrThread[], statusFilter: CommentStatusFilter): Section[] {
-  const filtered = threads.filter((thread) => {
-    if (statusFilter === "all") return true;
-    const resolved = isResolvedStatus(thread.status);
-    return statusFilter === "resolved" ? resolved : !resolved;
-  });
-  const generalComments = filtered.filter((t) => !t.filePath).flatMap((t) => t.comments);
-  const fileThreads = filtered.filter((t) => t.filePath);
-  const sections: Section[] = [];
-  if (generalComments.length > 0) sections.push({ type: "general", comments: generalComments });
-  for (const thread of fileThreads) sections.push({ type: "file", thread });
-  return sections;
-}
+/**
+ * Splits `text` into up to three segments around the highlighted column
+ * range and renders the middle one with a selection background. Full-row
+ * highlights get padded to `contentWidth` so short lines in the middle of a
+ * multi-line selection still read as a continuous highlighted block.
+ */
+function highlightedText(
+  text: string,
+  highlight: { start: number; end: number } | null,
+  contentWidth: number,
+) {
+  if (!highlight) return text;
 
-function buildCommentLines(sections: Section[], width: number): ContentLine[] {
-  const lines: ContentLine[] = [];
+  const isFullRow = highlight.end >= contentWidth - 1 && highlight.start === 0;
+  const source = isFullRow && text.length < contentWidth ? text.padEnd(contentWidth) : text;
+  const start = Math.max(0, Math.min(highlight.start, source.length));
+  const end = Math.min(highlight.end, source.length - 1);
+  if (end < start) return text;
 
-  for (const section of sections) {
-    if (section.type === "general") {
-      lines.push({ key: "general-header", kind: "header", text: "General", accent: "cyan" });
-      for (const comment of section.comments) {
-        pushCommentLines(lines, "general", comment, width);
-      }
-      continue;
-    }
+  const before = source.slice(0, start);
+  const middle = source.slice(start, end + 1);
+  const after = source.slice(end + 1);
 
-    const header = formatThreadHeader(section.thread);
-    const accent = isResolvedStatus(section.thread.status) ? "green" : "magenta";
-    lines.push({ key: `t-${section.thread.id}-header`, kind: "header", text: header, accent });
-    for (const comment of section.thread.comments) {
-      pushCommentLines(lines, `t-${section.thread.id}`, comment, width);
-    }
-  }
-
-  while (lines.length > 0 && lines[lines.length - 1]?.kind === "blank") {
-    lines.pop();
-  }
-
-  return lines;
-}
-
-function pushCommentLines(lines: ContentLine[], scope: string, comment: PrComment, width: number): void {
-  const prefix = `${scope}-c-${comment.id}`;
-  lines.push({
-    key: `${prefix}-meta`,
-    kind: "meta",
-    text: `${comment.author} · ${formatDistanceToNow(new Date(comment.publishedAt), { addSuffix: true })}`,
-  });
-  renderMarkdownToLines(stripHtml(comment.content), width).forEach((text, i) => {
-    lines.push({ key: `${prefix}-b-${i}`, kind: "markdown", text });
-  });
-  lines.push({ key: `${prefix}-blank`, kind: "blank", text: "" });
-}
-
-function formatThreadHeader(thread: PrThread): string {
-  const base = (() => {
-    if (!thread.filePath) return "Comment";
-    if (!thread.line) return thread.filePath;
-    const lineLabel = thread.lineEnd ? `Line ${thread.line}-${thread.lineEnd}` : `Line ${thread.line}`;
-    return `${thread.filePath}: ${lineLabel}`;
-  })();
-  return isResolvedStatus(thread.status) ? `${base} [${thread.status}]` : base;
+  return (
+    <>
+      {before}
+      <Text backgroundColor="cyan" color="black">
+        {middle}
+      </Text>
+      {after}
+    </>
+  );
 }
