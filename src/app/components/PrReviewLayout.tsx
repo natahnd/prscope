@@ -96,7 +96,7 @@ export function PrReviewLayout({
           onClose={onCloseFilterModal}
         />
       ) : (
-        <Box flexDirection="row" marginTop={1}>
+        <Box flexDirection="row">
           <PrListPanel
             pullRequests={pullRequests}
             selectedIndex={selectedIndex}

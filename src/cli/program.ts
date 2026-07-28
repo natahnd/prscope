@@ -27,8 +27,8 @@ export function createProgram(): Command {
     program
       .command("list", { isDefault: true })
       .description("List pull requests (interactive TUI by default)")
-      .action(async (options) => {
-        await runListCommand(options);
+      .action(async (options, command) => {
+        await runListCommand(options, command);
       }),
   );
 

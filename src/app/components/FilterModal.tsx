@@ -32,8 +32,7 @@ const DRAFT_OPTIONS: { value: DraftFilter; label: string }[] = [
 ];
 const COMMENT_OPTIONS: { value: CommentActivityFilter; label: string }[] = [
   { value: "all", label: "All PRs" },
-  { value: "hide", label: "Hide active comments" },
-  { value: "only", label: "Only active comments" },
+  { value: "only", label: "PRs with active comments" },
 ];
 
 export function FilterModal({ repositories, initial, onApply, onClose }: FilterModalProps) {
@@ -155,7 +154,7 @@ export function FilterModal({ repositories, initial, onApply, onClose }: FilterM
             </Text>
           ))}
         </Box>
-        <Box flexDirection="column" width={24} marginLeft={2}>
+        <Box flexDirection="column" width={28} marginLeft={2}>
           <Text bold={section === "comments"}>Comments</Text>
           {COMMENT_OPTIONS.map((option, i) => (
             <Text
@@ -198,10 +197,8 @@ export function filtersToLabels(filters: PullRequestFilters): string[] {
   if (filters.draftFilter && filters.draftFilter !== "all") {
     labels.push(filters.draftFilter === "hide" ? "drafts:hidden" : "drafts:only");
   }
-  if (filters.activeCommentsFilter && filters.activeCommentsFilter !== "all") {
-    labels.push(
-      filters.activeCommentsFilter === "hide" ? "comments:actioned" : "comments:active",
-    );
+  if (filters.activeCommentsFilter === "only") {
+    labels.push("comments:active");
   }
   if (filters.search) labels.push(`search:${filters.search}`);
   return labels;

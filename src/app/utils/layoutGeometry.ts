@@ -8,7 +8,6 @@ export interface LayoutGeometry {
 
 export const STATUS_BAR_HEIGHT = 3;
 export const HEADER_HEIGHT = 3;
-export const ROW_GAP = 1;
 export const ERROR_LINE_HEIGHT = 2;
 export const MIN_PANEL_WIDTH = 20;
 export const MIN_PANEL_HEIGHT = 5;
@@ -26,7 +25,7 @@ export function computeLayoutGeometry(
   terminalSize: { columns: number; rows: number },
   options: { hasError: boolean; leftWidthRatio: number },
 ): LayoutGeometry {
-  const reservedTop = HEADER_HEIGHT + (options.hasError ? ERROR_LINE_HEIGHT : 0) + ROW_GAP;
+  const reservedTop = HEADER_HEIGHT + (options.hasError ? ERROR_LINE_HEIGHT : 0);
   const panelHeight = Math.max(
     MIN_PANEL_HEIGHT,
     terminalSize.rows - reservedTop - STATUS_BAR_HEIGHT,

@@ -5,6 +5,7 @@ import type {
   AppConfig,
   AppConfigV2,
   AzureDevOpsProviderConfig,
+  PullRequestFilters,
 } from "../api/types.js";
 import type { ProviderId } from "../api/types.js";
 
@@ -78,6 +79,19 @@ export async function updateLastProject(project: string): Promise<void> {
   await saveConfig(config);
 }
 
+export async function updateLastFilters(filters: PullRequestFilters): Promise<void> {
+  const config = await loadConfig();
+  if (!config.activeProvider) return;
+  const providerConfig = config.providers[config.activeProvider] ?? {};
+  if (config.activeProvider === "azure-devops") {
+    config.providers["azure-devops"] = {
+      ...(providerConfig as AzureDevOpsProviderConfig),
+      lastFilters: filters,
+    };
+  }
+  await saveConfig(config);
+}
+
 export async function saveProviderConfig(
   providerId: ProviderId,
   providerConfig: Record<string, string | undefined>,
@@ -129,6 +143,13 @@ export function getProviderDisplayContext(config: AppConfigV2): string {
 export function getLastProject(config: AppConfigV2): string | undefined {
   if (config.activeProvider === "azure-devops") {
     return config.providers["azure-devops"]?.lastProject;
+  }
+  return undefined;
+}
+
+export function getLastFilters(config: AppConfigV2): PullRequestFilters | undefined {
+  if (config.activeProvider === "azure-devops") {
+    return config.providers["azure-devops"]?.lastFilters;
   }
   return undefined;
 }

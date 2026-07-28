@@ -15,6 +15,7 @@ import {
   getProviderDisplayContext,
   loadConfig,
   saveProviderConfig,
+  updateLastFilters,
   updateLastProject,
 } from "../config/store.js";
 import { getProvider } from "../providers/registry.js";
@@ -215,6 +216,18 @@ export function App({ initialProject, initialFilters }: AppProps) {
     }
   }, [selectedProject, screen, filters, loadPullRequests, client]);
 
+  // Persist filter changes (Filter modal + committed search) so they're
+  // restored on the next launch. Skip the very first run so we don't
+  // immediately re-save whatever `initialFilters` we just loaded with.
+  const filtersHydratedRef = useRef(false);
+  useEffect(() => {
+    if (!filtersHydratedRef.current) {
+      filtersHydratedRef.current = true;
+      return;
+    }
+    void updateLastFilters(filters);
+  }, [filters]);
+
   const commentActivity = usePrCommentActivity(client, selectedProject, pullRequests);
 
   const displayedPrs = useMemo(() => {
@@ -225,14 +238,13 @@ export function App({ initialProject, initialFilters }: AppProps) {
           const haystack = `${pr.repoName} ${pr.title} ${pr.author}`.toLowerCase();
           return haystack.includes(q);
         });
-    if (filters.activeCommentsFilter && filters.activeCommentsFilter !== "all") {
+    if (filters.activeCommentsFilter === "only") {
       filtered = filtered.filter((pr) => {
         const activity = commentActivity.get(prKey(pr));
         // Comment status loads in the background; keep PRs visible until we
         // know, rather than having the list flicker/empty out while loading.
         if (activity === undefined || activity === "error") return true;
-        const hasActive = activity === "active";
-        return filters.activeCommentsFilter === "only" ? hasActive : !hasActive;
+        return activity === "active";
       });
     }
     // Grouped by repo in the list panel, so keep this order in sync with that grouping.
@@ -362,10 +374,9 @@ export function App({ initialProject, initialFilters }: AppProps) {
           draggingSelectionRef.current = false;
           const data = selectionDataRef.current;
           const moved = data && (data.anchor.row !== data.focus.row || data.anchor.col !== data.focus.col);
-          if (data && moved) {
-            const text = extractSelectedText(rightPanelLines, normalizeSelection(data));
-            if (text && stdout) stdout.write(buildOsc52CopySequence(text));
-          } else {
+          // A real drag leaves the selection highlighted (copy it with the
+          // `y` keybinding); a plain click with no movement just clears it.
+          if (!moved) {
             selectionDataRef.current = null;
             setRightSelection(null);
           }
@@ -435,9 +446,7 @@ export function App({ initialProject, initialFilters }: AppProps) {
       safeSelectedIndex,
       rightMode,
       rightMaxScroll,
-      rightPanelLines,
       resolveRightPanelPoint,
-      stdout,
     ],
   );
 
@@ -577,6 +586,20 @@ export function App({ initialProject, initialFilters }: AppProps) {
     }
     if (panelFocus === "detail" && rightMode === "comments" && input === "s") {
       setCommentStatusFilter((f) => nextCommentStatusFilter(f));
+      return;
+    }
+    if (input === "y" && rightPanelLines.length > 0) {
+      // Copies the entire current right-panel content (description or
+      // comments, respecting whatever filter is applied) rather than just a
+      // mouse-drag selection, so a single keypress grabs the full view as
+      // rendered — file/line headers included.
+      const text = extractSelectedText(rightPanelLines, {
+        startRow: 0,
+        startCol: 0,
+        endRow: rightPanelLines.length - 1,
+        endCol: Number.MAX_SAFE_INTEGER,
+      });
+      if (text && stdout) stdout.write(buildOsc52CopySequence(text));
       return;
     }
     if ((key.return || input === "o") && selectedPr) {

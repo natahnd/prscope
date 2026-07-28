@@ -1,3 +1,5 @@
+import stripAnsi from "strip-ansi";
+
 export interface SelectionPoint {
   /** Absolute index into the full (unscrolled) content lines array. */
   row: number;
@@ -56,7 +58,8 @@ export function extractSelectedText(
     const end = row === selection.endRow ? selection.endCol : line.text.length - 1;
     const clampedStart = Math.max(0, Math.min(start, line.text.length));
     const clampedEnd = Math.min(end, line.text.length - 1);
-    out.push(clampedEnd < clampedStart ? "" : trimTrailingWhitespace(line.text.slice(clampedStart, clampedEnd + 1)));
+    const slice = clampedEnd < clampedStart ? "" : line.text.slice(clampedStart, clampedEnd + 1);
+    out.push(trimTrailingWhitespace(stripAnsi(slice)));
   }
   return out.join("\n").replace(/\n+$/g, "");
 }

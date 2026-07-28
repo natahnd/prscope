@@ -19,7 +19,7 @@ export function StatusBar({ screen, modalOpen, setupDetecting }: StatusBarProps)
     hint = "↑↓ navigate · Enter select · / search · r refresh · q quit";
   } else {
     hint =
-      "j/k navigate/scroll · Tab focus · h/l switch view · s comment filter · Enter open · f filter · p project · / search · r refresh · q quit";
+      "j/k navigate/scroll · Tab focus · h/l switch view · s comment filter · y copy panel · Enter open · f filter · p project · / search · r refresh · q quit";
   }
 
   return (

@@ -164,9 +164,17 @@ export class AzureDevOpsClient implements ProviderClient {
       `/pullrequests/${pullRequestId}/threads?api-version=${API_VERSION}`;
     const data = await this.fetchJson<ApiListResponse<RawThread>>(url);
 
+    // Azure DevOps also returns system threads (reviewer voted, status
+    // changed, branch updated, etc). Those have no real feedback once their
+    // system-generated comments are stripped in normalizeThread, but they
+    // still carry a thread `status` (often "active", since ADO doesn't mark
+    // them resolved) — so they must be dropped here, after normalizing,
+    // rather than by the raw comment count, or they'd be miscounted as
+    // unresolved human feedback.
     return data.value
-      .filter((thread) => !thread.isDeleted && thread.comments.length > 0)
-      .map((thread) => normalizeThread(thread));
+      .filter((thread) => !thread.isDeleted)
+      .map((thread) => normalizeThread(thread))
+      .filter((thread) => thread.comments.length > 0);
   }
 
   async getFileSnippet(

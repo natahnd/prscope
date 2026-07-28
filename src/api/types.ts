@@ -1,12 +1,13 @@
 export type PullRequestStatus = "active" | "completed" | "abandoned" | "all";
 export type DraftFilter = "all" | "hide" | "only";
-export type CommentActivityFilter = "all" | "hide" | "only";
+export type CommentActivityFilter = "all" | "only";
 
 export type ProviderId = "azure-devops" | "github";
 
 export interface AzureDevOpsProviderConfig {
   organization?: string;
   lastProject?: string;
+  lastFilters?: PullRequestFilters;
 }
 
 export interface GitHubProviderConfig {
