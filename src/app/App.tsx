@@ -1,6 +1,6 @@
 import { Box, Text, useApp, useInput } from "ink";
 import open from "open";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppScreen,
   NormalizedPullRequest,
@@ -33,8 +33,18 @@ import {
 } from "./components/PrRightPanel.js";
 import { ProjectPicker } from "./components/ProjectPicker.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { useMouse, type MouseInputEvent } from "./hooks/useMouse.js";
+import { usePrCommentActivity } from "./hooks/usePrCommentActivity.js";
 import { usePullRequestDetail } from "./hooks/usePullRequestDetail.js";
 import { useTerminalSize } from "./hooks/useTerminalSize.js";
+import {
+  computeLayoutGeometry,
+  DEFAULT_LEFT_WIDTH_RATIO,
+  MAX_LEFT_WIDTH_RATIO,
+  MIN_LEFT_WIDTH_RATIO,
+} from "./utils/layoutGeometry.js";
+import { prKey } from "./utils/prKey.js";
+import { resolveListClickRow } from "./utils/prListRows.js";
 
 interface AppProps {
   initialProject?: string;
@@ -83,6 +93,8 @@ export function App({ initialProject, initialFilters }: AppProps) {
   const [descriptionScroll, setDescriptionScroll] = useState(0);
   const [commentsScroll, setCommentsScroll] = useState(0);
   const [rightMaxScroll, setRightMaxScroll] = useState(0);
+  const [leftWidthRatio, setLeftWidthRatio] = useState(DEFAULT_LEFT_WIDTH_RATIO);
+  const draggingDividerRef = useRef(false);
 
   const terminalSize = useTerminalSize();
 
@@ -181,17 +193,29 @@ export function App({ initialProject, initialFilters }: AppProps) {
     }
   }, [selectedProject, screen, filters, loadPullRequests, client]);
 
+  const commentActivity = usePrCommentActivity(client, selectedProject, pullRequests);
+
   const displayedPrs = useMemo(() => {
     const q = (filters.search ?? searchQuery).toLowerCase();
-    const filtered = !q
+    let filtered = !q
       ? pullRequests
       : pullRequests.filter((pr) => {
           const haystack = `${pr.repoName} ${pr.title} ${pr.author}`.toLowerCase();
           return haystack.includes(q);
         });
+    if (filters.activeCommentsFilter && filters.activeCommentsFilter !== "all") {
+      filtered = filtered.filter((pr) => {
+        const activity = commentActivity.get(prKey(pr));
+        // Comment status loads in the background; keep PRs visible until we
+        // know, rather than having the list flicker/empty out while loading.
+        if (activity === undefined || activity === "error") return true;
+        const hasActive = activity === "active";
+        return filters.activeCommentsFilter === "only" ? hasActive : !hasActive;
+      });
+    }
     // Grouped by repo in the list panel, so keep this order in sync with that grouping.
     return [...filtered].sort((a, b) => a.repoName.localeCompare(b.repoName));
-  }, [pullRequests, filters.search, searchQuery]);
+  }, [pullRequests, filters.search, filters.activeCommentsFilter, searchQuery, commentActivity]);
 
   const safeSelectedIndex =
     displayedPrs.length === 0 ? 0 : Math.min(selectedIndex, displayedPrs.length - 1);
@@ -225,6 +249,88 @@ export function App({ initialProject, initialFilters }: AppProps) {
       setCommentsScroll((s) => Math.min(s, rightMaxScroll));
     }
   }, [rightMaxScroll, rightMode]);
+
+  const geometry = useMemo(
+    () =>
+      computeLayoutGeometry(terminalSize, {
+        hasError: Boolean(prsError),
+        leftWidthRatio,
+      }),
+    [terminalSize, prsError, leftWidthRatio],
+  );
+
+  const handleMouseEvent = useCallback(
+    (event: MouseInputEvent) => {
+      if (screen !== "prList" || filterModalOpen) return;
+      const { reservedTop, panelHeight, leftWidth } = geometry;
+      const withinMainRow = event.y >= reservedTop && event.y < reservedTop + panelHeight;
+
+      if (event.action === "move") {
+        if (draggingDividerRef.current) {
+          const ratio = event.x / Math.max(1, terminalSize.columns);
+          setLeftWidthRatio(Math.min(MAX_LEFT_WIDTH_RATIO, Math.max(MIN_LEFT_WIDTH_RATIO, ratio)));
+        }
+        return;
+      }
+
+      if (event.action === "up") {
+        draggingDividerRef.current = false;
+        return;
+      }
+
+      // event.action === "down" from here on.
+      if (event.button === "wheel-up" || event.button === "wheel-down") {
+        if (!withinMainRow) return;
+        const delta = event.button === "wheel-up" ? -1 : 1;
+        if (event.x < leftWidth) {
+          setSelectedIndex((i) =>
+            Math.min(Math.max(displayedPrs.length - 1, 0), Math.max(0, i + delta)),
+          );
+        } else if (rightMode === "description") {
+          setDescriptionScroll((s) => Math.min(rightMaxScroll, Math.max(0, s + delta)));
+        } else {
+          setCommentsScroll((s) => Math.min(rightMaxScroll, Math.max(0, s + delta)));
+        }
+        return;
+      }
+
+      if (!withinMainRow) return;
+
+      // Small hit-zone straddling the seam between the two bordered panels.
+      if (Math.abs(event.x - leftWidth) <= 1) {
+        draggingDividerRef.current = true;
+        return;
+      }
+
+      if (event.x < leftWidth) {
+        setPanelFocus("list");
+        const localRow = event.y - reservedTop;
+        const prIndex = resolveListClickRow(
+          displayedPrs,
+          safeSelectedIndex,
+          panelHeight,
+          localRow,
+          searchMode,
+        );
+        if (prIndex !== null) setSelectedIndex(prIndex);
+      } else {
+        setPanelFocus("detail");
+      }
+    },
+    [
+      screen,
+      filterModalOpen,
+      searchMode,
+      geometry,
+      terminalSize.columns,
+      displayedPrs,
+      safeSelectedIndex,
+      rightMode,
+      rightMaxScroll,
+    ],
+  );
+
+  useMouse(handleMouseEvent);
 
   const handleProviderSelect = (provider: ProviderDefinition) => {
     if (!provider.enabled) return;
@@ -464,6 +570,8 @@ export function App({ initialProject, initialFilters }: AppProps) {
         commentStatusFilter={commentStatusFilter}
         rightScroll={rightScroll}
         onRightMaxScrollChange={handleRightMaxScrollChange}
+        leftWidthRatio={leftWidthRatio}
+        commentActivity={commentActivity}
       />
       <StatusBar screen="prList" modalOpen={filterModalOpen} />
     </Box>

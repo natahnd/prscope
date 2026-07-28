@@ -4,17 +4,12 @@ import { formatDistanceToNow } from "date-fns";
 import { useEffect, useMemo } from "react";
 import type { NormalizedPullRequest, PrComment, PrThread } from "../../api/types.js";
 import type { PullRequestDetailState } from "../hooks/usePullRequestDetail.js";
+import { isResolvedStatus } from "../utils/commentStatus.js";
 import { renderMarkdownToLines } from "../utils/renderMarkdown.js";
 import { stripHtml } from "../utils/wrapText.js";
 
 export type RightPanelMode = "description" | "comments";
 export type CommentStatusFilter = "all" | "active" | "resolved";
-
-const RESOLVED_STATUSES = new Set(["fixed", "wontfix", "closed", "bydesign"]);
-
-function isResolvedStatus(status: string): boolean {
-  return RESOLVED_STATUSES.has(status.toLowerCase());
-}
 
 export function nextCommentStatusFilter(current: CommentStatusFilter): CommentStatusFilter {
   if (current === "all") return "active";

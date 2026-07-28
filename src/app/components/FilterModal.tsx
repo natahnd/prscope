@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import type {
   AdoRepository,
+  CommentActivityFilter,
   DraftFilter,
   PullRequestFilters,
   PullRequestStatus,
@@ -13,6 +14,7 @@ export interface FilterModalState {
   reviewerMe: boolean;
   authorMe: boolean;
   draftFilter: DraftFilter;
+  activeCommentsFilter: CommentActivityFilter;
 }
 
 interface FilterModalProps {
@@ -27,6 +29,11 @@ const DRAFT_OPTIONS: { value: DraftFilter; label: string }[] = [
   { value: "all", label: "All PRs" },
   { value: "hide", label: "Hide drafts" },
   { value: "only", label: "Only drafts" },
+];
+const COMMENT_OPTIONS: { value: CommentActivityFilter; label: string }[] = [
+  { value: "all", label: "All PRs" },
+  { value: "hide", label: "Hide active comments" },
+  { value: "only", label: "Only active comments" },
 ];
 
 export function FilterModal({ repositories, initial, onApply, onClose }: FilterModalProps) {
@@ -44,10 +51,18 @@ export function FilterModal({ repositories, initial, onApply, onClose }: FilterM
       DRAFT_OPTIONS.findIndex((o) => o.value === initial.draftFilter),
     ),
   );
+  const [commentIndex, setCommentIndex] = useState(
+    Math.max(
+      0,
+      COMMENT_OPTIONS.findIndex((o) => o.value === initial.activeCommentsFilter),
+    ),
+  );
   const [reviewerMe, setReviewerMe] = useState(initial.reviewerMe);
   const [authorMe, setAuthorMe] = useState(initial.authorMe);
   const [toggleIndex, setToggleIndex] = useState(0); // 0 = Reviewer: me, 1 = Author: me
-  const [section, setSection] = useState<"status" | "repo" | "draft" | "toggles">("status");
+  const SECTIONS = ["status", "repo", "draft", "comments", "toggles"] as const;
+  type Section = (typeof SECTIONS)[number];
+  const [section, setSection] = useState<Section>("status");
 
   useInput((input, key) => {
     if (key.escape) {
@@ -61,6 +76,7 @@ export function FilterModal({ repositories, initial, onApply, onClose }: FilterM
         reviewerMe,
         authorMe,
         draftFilter: DRAFT_OPTIONS[draftIndex]?.value ?? "all",
+        activeCommentsFilter: COMMENT_OPTIONS[commentIndex]?.value ?? "all",
       });
       return;
     }
@@ -69,6 +85,8 @@ export function FilterModal({ repositories, initial, onApply, onClose }: FilterM
       else if (section === "repo") setRepoIndex((i) => Math.min(repositories.length, i + 1));
       else if (section === "draft")
         setDraftIndex((i) => Math.min(DRAFT_OPTIONS.length - 1, i + 1));
+      else if (section === "comments")
+        setCommentIndex((i) => Math.min(COMMENT_OPTIONS.length - 1, i + 1));
       else setToggleIndex((i) => Math.min(1, i + 1));
       return;
     }
@@ -76,15 +94,16 @@ export function FilterModal({ repositories, initial, onApply, onClose }: FilterM
       if (section === "status") setStatusIndex((i) => Math.max(0, i - 1));
       else if (section === "repo") setRepoIndex((i) => Math.max(0, i - 1));
       else if (section === "draft") setDraftIndex((i) => Math.max(0, i - 1));
+      else if (section === "comments") setCommentIndex((i) => Math.max(0, i - 1));
       else setToggleIndex((i) => Math.max(0, i - 1));
       return;
     }
     if (input === "h" || key.leftArrow) {
-      setSection((s) => (s === "toggles" ? "draft" : s === "draft" ? "repo" : s === "repo" ? "status" : s));
+      setSection((s) => SECTIONS[Math.max(0, SECTIONS.indexOf(s) - 1)]);
       return;
     }
     if (input === "l" || key.rightArrow) {
-      setSection((s) => (s === "status" ? "repo" : s === "repo" ? "draft" : s === "draft" ? "toggles" : s));
+      setSection((s) => SECTIONS[Math.min(SECTIONS.length - 1, SECTIONS.indexOf(s) + 1)]);
       return;
     }
     if (input === " ") {
@@ -136,6 +155,19 @@ export function FilterModal({ repositories, initial, onApply, onClose }: FilterM
             </Text>
           ))}
         </Box>
+        <Box flexDirection="column" width={24} marginLeft={2}>
+          <Text bold={section === "comments"}>Comments</Text>
+          {COMMENT_OPTIONS.map((option, i) => (
+            <Text
+              key={option.value}
+              wrap="truncate-end"
+              color={i === commentIndex ? "cyan" : undefined}
+            >
+              {i === commentIndex ? "▶ " : "  "}
+              {option.label}
+            </Text>
+          ))}
+        </Box>
         <Box flexDirection="column" marginLeft={2}>
           <Text bold={section === "toggles"}>People</Text>
           <Text
@@ -166,6 +198,11 @@ export function filtersToLabels(filters: PullRequestFilters): string[] {
   if (filters.draftFilter && filters.draftFilter !== "all") {
     labels.push(filters.draftFilter === "hide" ? "drafts:hidden" : "drafts:only");
   }
+  if (filters.activeCommentsFilter && filters.activeCommentsFilter !== "all") {
+    labels.push(
+      filters.activeCommentsFilter === "hide" ? "comments:actioned" : "comments:active",
+    );
+  }
   if (filters.search) labels.push(`search:${filters.search}`);
   return labels;
 }
@@ -182,6 +219,7 @@ export function modalStateToFilters(
     authorMe: state.authorMe,
     authorId: state.authorMe ? currentUserId : undefined,
     draftFilter: state.draftFilter,
+    activeCommentsFilter: state.activeCommentsFilter,
   };
 }
 
@@ -192,5 +230,6 @@ export function filtersToModalState(filters: PullRequestFilters): FilterModalSta
     reviewerMe: filters.reviewerMe ?? false,
     authorMe: filters.authorMe ?? false,
     draftFilter: filters.draftFilter ?? "all",
+    activeCommentsFilter: filters.activeCommentsFilter ?? "all",
   };
 }

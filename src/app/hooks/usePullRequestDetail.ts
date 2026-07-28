@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { NormalizedPullRequest, PrThread, PullRequestDetail } from "../../api/types.js";
 import type { ProviderClient } from "../../providers/types.js";
+import { prKey } from "../utils/prKey.js";
 
 export interface PullRequestDetailState {
   detail?: PullRequestDetail;
@@ -25,7 +26,7 @@ export function usePullRequestDetail(
       return;
     }
 
-    const key = `${pr.repositoryId}:${pr.id}`;
+    const key = prKey(pr);
     const cached = cache.current.get(key);
     if (cached) {
       setState(cached);

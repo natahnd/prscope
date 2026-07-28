@@ -1,26 +1,19 @@
-import { Box, Text } from "ink";
+import { Box } from "ink";
 import type {
   AdoRepository,
   NormalizedPullRequest,
   PullRequestFilters,
 } from "../../api/types.js";
+import type { CommentActivity } from "../hooks/usePrCommentActivity.js";
 import type { PullRequestDetailState } from "../hooks/usePullRequestDetail.js";
 import type { TerminalSize } from "../hooks/useTerminalSize.js";
+import { computeLayoutGeometry } from "../utils/layoutGeometry.js";
 import { FilterModal, filtersToModalState, type FilterModalState } from "./FilterModal.js";
 import { Header } from "./Header.js";
 import { PrListPanel } from "./PrListPanel.js";
 import { PrRightPanel, type CommentStatusFilter, type RightPanelMode } from "./PrRightPanel.js";
 
 export type PanelFocus = "list" | "detail";
-
-const STATUS_BAR_HEIGHT = 3;
-const HEADER_HEIGHT = 3;
-const ROW_GAP = 1;
-const SEARCH_LINE_HEIGHT = 2;
-const ERROR_LINE_HEIGHT = 2;
-const LEFT_WIDTH_RATIO = 0.35;
-const MIN_PANEL_WIDTH = 20;
-const MIN_PANEL_HEIGHT = 5;
 
 interface PrReviewLayoutProps {
   terminalSize: TerminalSize;
@@ -45,6 +38,8 @@ interface PrReviewLayoutProps {
   commentStatusFilter: CommentStatusFilter;
   rightScroll: number;
   onRightMaxScrollChange: (maxScroll: number) => void;
+  leftWidthRatio: number;
+  commentActivity: Map<string, CommentActivity>;
 }
 
 export function PrReviewLayout({
@@ -70,16 +65,13 @@ export function PrReviewLayout({
   commentStatusFilter,
   rightScroll,
   onRightMaxScrollChange,
+  leftWidthRatio,
+  commentActivity,
 }: PrReviewLayoutProps) {
-  const reservedTop =
-    HEADER_HEIGHT +
-    (error ? ERROR_LINE_HEIGHT : 0) +
-    (searchMode ? SEARCH_LINE_HEIGHT : 0) +
-    ROW_GAP;
-  const mainHeight = Math.max(MIN_PANEL_HEIGHT, terminalSize.rows - reservedTop - STATUS_BAR_HEIGHT);
-
-  const leftWidth = Math.max(MIN_PANEL_WIDTH, Math.floor(terminalSize.columns * LEFT_WIDTH_RATIO));
-  const rightWidth = Math.max(MIN_PANEL_WIDTH, terminalSize.columns - leftWidth);
+  const { panelHeight: mainHeight, leftWidth, rightWidth } = computeLayoutGeometry(terminalSize, {
+    hasError: Boolean(error),
+    leftWidthRatio,
+  });
 
   const selectedPr = pullRequests[selectedIndex];
 
@@ -93,11 +85,6 @@ export function PrReviewLayout({
         error={error}
         refreshedAt={refreshedAt}
       />
-      {searchMode && (
-        <Box marginTop={1}>
-          <TextSearchPrompt query={searchQuery} />
-        </Box>
-      )}
       {filterModalOpen ? (
         <FilterModal
           repositories={repositories}
@@ -114,6 +101,9 @@ export function PrReviewLayout({
             width={leftWidth}
             height={mainHeight}
             focused={focus === "list"}
+            commentActivity={commentActivity}
+            searchMode={searchMode}
+            searchQuery={searchQuery}
           />
           <PrRightPanel
             pullRequest={selectedPr}
@@ -128,16 +118,6 @@ export function PrReviewLayout({
           />
         </Box>
       )}
-    </Box>
-  );
-}
-
-function TextSearchPrompt({ query }: { query: string }) {
-  return (
-    <Box>
-      <Text dimColor>/ search: </Text>
-      <Text>{query}</Text>
-      <Text dimColor> (Enter apply · Esc clear)</Text>
     </Box>
   );
 }

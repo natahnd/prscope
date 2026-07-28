@@ -8,8 +8,9 @@ A keyboard-driven terminal UI for reviewing pull requests across repositories. A
 - **Auto-detect org** from `az devops configure` when setting up Azure DevOps
 - **Remembers your last project** — launches straight into it next time; the project picker only shows on first run or when you press `p`
 - **Lazygit-style split layout** — PR list on the left, grouped by repository; a fixed-height panel on the right toggles between description and comments (`h`/`l`), both independently scrollable so the UI never jumps around
-- **Filters** — status, repository, drafts (show all/hide/only), reviewer/author (me), text search
+- **Filters** — status, repository, drafts (show all/hide/only), active comments (show all/hide/only — see which PRs still need action), reviewer/author (me), text search
 - **Keyboard navigation** — j/k, Tab to switch panel focus, h/l to switch description/comments, Enter to open in browser, `p` to switch projects
+- **Mouse support** — click a PR to select it, click either panel to focus it, drag the divider between panels to resize them, scroll the wheel to navigate/scroll
 - **Dual auth** — Azure CLI session or Personal Access Token
 
 ## Requirements
@@ -110,6 +111,8 @@ pr-reviews config show
 
 The right side is a single fixed-height panel that toggles between **Description** and **Comments** for the selected PR (`h`/`l` to switch, `Tab` to move focus there). Both views are independently scrollable so long descriptions or comment threads never resize the UI. Comments are shown as `path/to/file: Line X` (or `Line X-Y` for a range) followed by the full, untruncated comment text. Descriptions and comment bodies are rendered as Markdown (glow-style, via `marked`/`marked-terminal`) — headings, bold/italic, lists, code spans, and tables get proper terminal styling instead of raw `#`/`**`/`` ` `` syntax. In Comments, press `s` to cycle between all comments, active-only, and resolved-only; resolved threads are also tagged (e.g. `[fixed]`) and shown in green even when the filter is off.
 
+The list itself fetches each PR's comment thread status in the background and tags rows with unresolved threads as `· active comments`, so you can tell at a glance which PRs still need action. Use the Filter modal's **Comments** column to hide or isolate them across the whole list.
+
 | Key | Action |
 |-----|--------|
 | ↑/↓ or j/k | Navigate PR list, or scroll the description/comments panel when it's focused |
@@ -122,6 +125,8 @@ The right side is a single fixed-height panel that toggles between **Description
 | / | Search PRs |
 | r | Refresh |
 | q | Quit |
+
+**Mouse:** click a PR row to select it and view its details; click the list or the right panel to focus it; drag the border between the two panels left/right to resize them; scroll the wheel over either panel to navigate the list or scroll the focused content.
 
 ## Development
 

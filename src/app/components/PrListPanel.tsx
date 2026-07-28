@@ -1,5 +1,8 @@
 import { Box, Text } from "ink";
 import type { NormalizedPullRequest } from "../../api/types.js";
+import type { CommentActivity } from "../hooks/usePrCommentActivity.js";
+import { prKey } from "../utils/prKey.js";
+import { getVisiblePrRows } from "../utils/prListRows.js";
 
 interface PrListPanelProps {
   pullRequests: NormalizedPullRequest[];
@@ -8,13 +11,10 @@ interface PrListPanelProps {
   width: number;
   height: number;
   focused: boolean;
+  commentActivity: Map<string, CommentActivity>;
+  searchMode: boolean;
+  searchQuery: string;
 }
-
-type VisualRow =
-  | { type: "header"; key: string; repoName: string }
-  | { type: "spacer"; key: string }
-  | { type: "title"; key: string; pr: NormalizedPullRequest; prIndex: number }
-  | { type: "meta"; key: string; pr: NormalizedPullRequest; prIndex: number };
 
 export function PrListPanel({
   pullRequests,
@@ -23,14 +23,11 @@ export function PrListPanel({
   width,
   height,
   focused,
+  commentActivity,
+  searchMode,
+  searchQuery,
 }: PrListPanelProps) {
-  const rows = buildRows(pullRequests);
-  const availableRows = Math.max(1, height - 4);
-  const selectedRowIndex = rows.findIndex(
-    (row) => row.type === "title" && row.prIndex === selectedIndex,
-  );
-  const start = computeScrollStart(Math.max(0, selectedRowIndex), rows.length, availableRows);
-  const visible = rows.slice(start, start + availableRows);
+  const { visible } = getVisiblePrRows(pullRequests, selectedIndex, height, searchMode);
 
   return (
     <Box
@@ -45,6 +42,7 @@ export function PrListPanel({
       <Text bold color={focused ? "cyan" : undefined}>
         Pull Requests {pullRequests.length > 0 ? `(${pullRequests.length})` : ""}
       </Text>
+      {searchMode && <SearchLine query={searchQuery} />}
       <FilterLine filters={filterLabels} />
       {pullRequests.length === 0 ? (
         <Text dimColor>No pull requests match your filters.</Text>
@@ -80,15 +78,33 @@ export function PrListPanel({
               </Text>
             );
           }
+          const hasActiveComments = commentActivity.get(prKey(row.pr)) === "active";
           return (
             <Text key={row.key} wrap="truncate-end" dimColor>
               {"    "}
               {row.pr.author} · {formatCompactAge(row.pr.createdAt)}
+              {hasActiveComments ? (
+                <Text color="magenta" dimColor={false}>
+                  {" "}
+                  · active comments
+                </Text>
+              ) : null}
             </Text>
           );
         })
       )}
     </Box>
+  );
+}
+
+function SearchLine({ query }: { query: string }) {
+  return (
+    <Text wrap="truncate-end" color="cyan">
+      /{" "}
+      <Text dimColor>search: </Text>
+      {query}
+      <Text dimColor> (Enter apply · Esc clear)</Text>
+    </Text>
   );
 }
 
@@ -99,37 +115,6 @@ function FilterLine({ filters }: { filters: string[] }) {
       {filters.length === 0 ? "none" : filters.map((f) => `[${f}]`).join(" · ")}
     </Text>
   );
-}
-
-function buildRows(pullRequests: NormalizedPullRequest[]): VisualRow[] {
-  const rows: VisualRow[] = [];
-  let lastRepo: string | null = null;
-
-  pullRequests.forEach((pr, index) => {
-    if (pr.repoName !== lastRepo) {
-      if (rows.length > 0) {
-        rows.push({ type: "spacer", key: `sp-${pr.repositoryId}-${pr.id}` });
-      }
-      rows.push({
-        type: "header",
-        key: `h-${pr.repositoryId}-${pr.repoName}`,
-        repoName: pr.repoName,
-      });
-      lastRepo = pr.repoName;
-    } else {
-      rows.push({ type: "spacer", key: `sp-${pr.repositoryId}-${pr.id}` });
-    }
-    rows.push({ type: "title", key: `t-${pr.repositoryId}-${pr.id}`, pr, prIndex: index });
-    rows.push({ type: "meta", key: `m-${pr.repositoryId}-${pr.id}`, pr, prIndex: index });
-  });
-
-  return rows;
-}
-
-function computeScrollStart(selectedRowIndex: number, total: number, visibleRows: number): number {
-  if (total <= visibleRows) return 0;
-  const start = selectedRowIndex - Math.floor(visibleRows / 2);
-  return Math.max(0, Math.min(start, total - visibleRows));
 }
 
 function rowColor(pr: NormalizedPullRequest, selected: boolean): string | undefined {

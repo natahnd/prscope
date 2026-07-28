@@ -1,5 +1,6 @@
 export type PullRequestStatus = "active" | "completed" | "abandoned" | "all";
 export type DraftFilter = "all" | "hide" | "only";
+export type CommentActivityFilter = "all" | "hide" | "only";
 
 export type ProviderId = "azure-devops" | "github";
 
@@ -106,6 +107,8 @@ export interface PullRequestFilters {
   reviewerMe?: boolean;
   authorMe?: boolean;
   draftFilter?: DraftFilter;
+  /** Client-only: filters on whether a PR has any unresolved comment thread. */
+  activeCommentsFilter?: CommentActivityFilter;
   search?: string;
 }
 
