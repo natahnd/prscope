@@ -79,6 +79,8 @@ pub struct AzureDevOpsProviderConfig {
     pub last_project: Option<String>,
     #[serde(rename = "lastFilters", skip_serializing_if = "Option::is_none")]
     pub last_filters: Option<PullRequestFilters>,
+    #[serde(rename = "lastListLayout", skip_serializing_if = "Option::is_none")]
+    pub last_list_layout: Option<PrListLayout>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -279,6 +281,48 @@ impl Default for PullRequestFilters {
             active_comments_filter: None,
             search: None,
         }
+    }
+}
+
+/// How the PR list panel groups and sorts pull requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PrListLayout {
+    /// Group under repository headers; meta line shows author and age.
+    #[default]
+    #[serde(rename = "repos")]
+    GroupByRepo,
+    /// Group under author headers; meta line shows repository and age.
+    #[serde(rename = "author")]
+    GroupByAuthor,
+    /// Flat list, newest first; meta line shows repository, author, and age.
+    #[serde(rename = "age-desc")]
+    SortByAgeDesc,
+    /// Flat list, oldest first; meta line shows repository, author, and age.
+    #[serde(rename = "age-asc")]
+    SortByAgeAsc,
+}
+
+impl PrListLayout {
+    pub fn next(self) -> Self {
+        match self {
+            PrListLayout::GroupByRepo => PrListLayout::GroupByAuthor,
+            PrListLayout::GroupByAuthor => PrListLayout::SortByAgeDesc,
+            PrListLayout::SortByAgeDesc => PrListLayout::SortByAgeAsc,
+            PrListLayout::SortByAgeAsc => PrListLayout::GroupByRepo,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PrListLayout::GroupByRepo => "repos",
+            PrListLayout::GroupByAuthor => "author",
+            PrListLayout::SortByAgeDesc => "age↓",
+            PrListLayout::SortByAgeAsc => "age↑",
+        }
+    }
+
+    pub fn groups(self) -> bool {
+        !matches!(self, PrListLayout::SortByAgeDesc | PrListLayout::SortByAgeAsc)
     }
 }
 

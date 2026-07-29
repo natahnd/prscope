@@ -393,6 +393,11 @@ fn handle_pr_list_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<AppEven
             ));
             app.filter_modal_open = true;
         }
+        KeyCode::Char('g') => {
+            app.list_layout = app.list_layout.next();
+            app.selected_index = 0;
+            persist_list_layout(app);
+        }
         KeyCode::Char('/') => {
             app.search_mode = true;
         }
@@ -493,6 +498,16 @@ pub fn persist_filters(app: &App) {
     let filters = app.filters.clone();
     tokio::spawn(async move {
         let _ = crate::config::store::update_last_filters(&filters).await;
+    });
+}
+
+pub fn persist_list_layout(app: &App) {
+    if !app.filters_hydrated {
+        return;
+    }
+    let layout = app.list_layout;
+    tokio::spawn(async move {
+        let _ = crate::config::store::update_last_list_layout(layout).await;
     });
 }
 
@@ -670,6 +685,7 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
             geometry.panel_height as usize,
             local_row,
             app.search_mode,
+            app.list_layout,
         ) {
             app.selected_index = pr_index;
             sync_detail_state(app, tx);

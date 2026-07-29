@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::api::types::{
-    AppScreen, CommentActivityFilter, NormalizedPullRequest, Project, PullRequestFilters,
-    Repository,
+    AppScreen, CommentActivityFilter, NormalizedPullRequest, PrListLayout, Project,
+    PullRequestFilters, Repository,
 };
+use crate::humanize::parse_date;
 use crate::providers::ProviderClient;
 
 use super::comment_activity::CommentActivity;
@@ -119,6 +120,7 @@ pub struct App {
     pub filter_modal_open: bool,
     pub filter_modal: Option<FilterModalState>,
     pub filters_hydrated: bool,
+    pub list_layout: PrListLayout,
 
     pub panel_focus: PanelFocus,
     pub right_mode: RightPanelMode,
@@ -184,6 +186,7 @@ impl App {
             filter_modal_open: false,
             filter_modal: None,
             filters_hydrated: false,
+            list_layout: PrListLayout::default(),
 
             panel_focus: PanelFocus::List,
             right_mode: RightPanelMode::Description,
@@ -220,8 +223,8 @@ impl App {
         )
     }
 
-    /// Filtered + sorted PR list, mirroring `displayedPrs` in App.tsx. Grouped
-    /// by repo in the list panel, so this must stay sorted the same way.
+    /// Filtered + sorted PR list for the list panel. Ordering must match how
+    /// `build_rows` groups rows for the active `list_layout`.
     pub fn displayed_prs(&self) -> Vec<&NormalizedPullRequest> {
         let query = self
             .filters
@@ -251,7 +254,40 @@ impl App {
             });
         }
 
-        filtered.sort_by_key(|pr| pr.repo_name.to_lowercase());
+        match self.list_layout {
+            PrListLayout::GroupByRepo => {
+                filtered.sort_by(|a, b| {
+                    a.repo_name
+                        .to_lowercase()
+                        .cmp(&b.repo_name.to_lowercase())
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+            }
+            PrListLayout::GroupByAuthor => {
+                filtered.sort_by(|a, b| {
+                    a.author
+                        .to_lowercase()
+                        .cmp(&b.author.to_lowercase())
+                        .then_with(|| a.repo_name.to_lowercase().cmp(&b.repo_name.to_lowercase()))
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+            }
+            PrListLayout::SortByAgeDesc => {
+                filtered.sort_by(|a, b| {
+                    parse_date(&b.created_at)
+                        .cmp(&parse_date(&a.created_at))
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+            }
+            PrListLayout::SortByAgeAsc => {
+                filtered.sort_by(|a, b| {
+                    parse_date(&a.created_at)
+                        .cmp(&parse_date(&b.created_at))
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+            }
+        }
+
         filtered
     }
 

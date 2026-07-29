@@ -126,6 +126,7 @@ The list itself fetches each PR's comment thread status in the background and ta
 | Tab | Toggle focus between PR list and the description/comments panel |
 | h/l or ←/→ | Switch the right panel between Description and Comments (when it's focused) |
 | s | Cycle the comments filter: all → active → resolved (when Comments is focused) |
+| g | Cycle list grouping: repos → author → age↓ → age↑ |
 | y | Copy the whole description/comments panel's current content (respects the active filter) |
 | Enter / o | Open PR in browser |
 | p | Switch project |

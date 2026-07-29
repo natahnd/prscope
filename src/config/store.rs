@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 
 use crate::api::types::{
-    AppConfigV2, AzureDevOpsProviderConfig, ProviderId, PullRequestFilters, RawAppConfig,
+    AppConfigV2, AzureDevOpsProviderConfig, PrListLayout, ProviderId, PullRequestFilters,
+    RawAppConfig,
 };
 
 fn config_dir() -> PathBuf {
@@ -128,6 +129,19 @@ pub async fn update_last_filters(filters: &PullRequestFilters) -> Result<()> {
     save_config(&config).await
 }
 
+pub async fn update_last_list_layout(layout: PrListLayout) -> Result<()> {
+    let mut config = load_config().await;
+    let Some(active) = config.active_provider else {
+        return Ok(());
+    };
+    if active == ProviderId::AzureDevops {
+        let mut ado = config.providers.azure_devops.clone().unwrap_or_default();
+        ado.last_list_layout = Some(layout);
+        config.providers.azure_devops = Some(ado);
+    }
+    save_config(&config).await
+}
+
 pub async fn save_provider_config(
     provider_id: ProviderId,
     organization: Option<String>,
@@ -214,6 +228,20 @@ pub fn get_last_filters(config: &AppConfigV2) -> Option<PullRequestFilters> {
             .and_then(|c| c.last_filters.clone());
     }
     None
+}
+
+pub fn get_last_list_layout(config: &AppConfigV2) -> PrListLayout {
+    if config.active_provider == Some(ProviderId::AzureDevops) {
+        if let Some(layout) = config
+            .providers
+            .azure_devops
+            .as_ref()
+            .and_then(|c| c.last_list_layout)
+        {
+            return layout;
+        }
+    }
+    PrListLayout::default()
 }
 
 #[cfg(test)]

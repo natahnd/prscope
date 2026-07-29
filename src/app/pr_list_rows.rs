@@ -1,8 +1,8 @@
-use crate::api::types::NormalizedPullRequest;
+use crate::api::types::{NormalizedPullRequest, PrListLayout};
 
 #[derive(Debug, Clone)]
 pub enum VisualRow {
-    Header { key: String, repo_name: String },
+    Header { key: String, label: String },
     Spacer { key: String },
     Title { key: String, pr_index: usize },
     Meta { key: String, pr_index: usize },
@@ -18,27 +18,43 @@ pub fn list_chrome_rows(search_mode: bool) -> usize {
     LIST_CHROME_ROWS + if search_mode { 1 } else { 0 }
 }
 
-pub fn build_rows(pull_requests: &[&NormalizedPullRequest]) -> Vec<VisualRow> {
+fn group_key(pr: &NormalizedPullRequest, layout: PrListLayout) -> &str {
+    match layout {
+        PrListLayout::GroupByRepo => pr.repo_name.as_str(),
+        PrListLayout::GroupByAuthor => pr.author.as_str(),
+        PrListLayout::SortByAgeDesc | PrListLayout::SortByAgeAsc => "",
+    }
+}
+
+pub fn build_rows(pull_requests: &[&NormalizedPullRequest], layout: PrListLayout) -> Vec<VisualRow> {
     let mut rows: Vec<VisualRow> = Vec::new();
-    let mut last_repo: Option<&str> = None;
+    let mut last_group: Option<&str> = None;
 
     for (index, pr) in pull_requests.iter().enumerate() {
-        if Some(pr.repo_name.as_str()) != last_repo {
-            if !rows.is_empty() {
+        if layout.groups() {
+            let current = group_key(pr, layout);
+            if Some(current) != last_group {
+                if !rows.is_empty() {
+                    rows.push(VisualRow::Spacer {
+                        key: format!("sp-{}-{}", pr.repository_id, pr.id),
+                    });
+                }
+                rows.push(VisualRow::Header {
+                    key: format!("h-{}-{}", pr.repository_id, current),
+                    label: current.to_string(),
+                });
+                last_group = Some(current);
+            } else {
                 rows.push(VisualRow::Spacer {
                     key: format!("sp-{}-{}", pr.repository_id, pr.id),
                 });
             }
-            rows.push(VisualRow::Header {
-                key: format!("h-{}-{}", pr.repository_id, pr.repo_name),
-                repo_name: pr.repo_name.clone(),
-            });
-            last_repo = Some(pr.repo_name.as_str());
-        } else {
+        } else if index > 0 {
             rows.push(VisualRow::Spacer {
                 key: format!("sp-{}-{}", pr.repository_id, pr.id),
             });
         }
+
         rows.push(VisualRow::Title {
             key: format!("t-{}-{}", pr.repository_id, pr.id),
             pr_index: index,
@@ -73,8 +89,9 @@ pub fn get_visible_pr_rows(
     selected_index: usize,
     panel_height: usize,
     search_mode: bool,
+    layout: PrListLayout,
 ) -> VisiblePrRows {
-    let rows = build_rows(pull_requests);
+    let rows = build_rows(pull_requests, layout);
     let available_rows =
         (panel_height as i64 - (list_chrome_rows(search_mode) as i64 + 1)).max(1) as usize;
     let selected_row_index = rows
@@ -99,8 +116,9 @@ pub fn resolve_list_click_row(
     panel_height: usize,
     local_row: i64,
     search_mode: bool,
+    layout: PrListLayout,
 ) -> Option<usize> {
-    let result = get_visible_pr_rows(pull_requests, selected_index, panel_height, search_mode);
+    let result = get_visible_pr_rows(pull_requests, selected_index, panel_height, search_mode, layout);
     let content_row = local_row - list_chrome_rows(search_mode) as i64;
     if content_row < 0 {
         return None;
@@ -116,7 +134,7 @@ pub fn resolve_list_click_row(
 mod tests {
     use super::*;
 
-    fn pr(id: i64, repo: &str) -> NormalizedPullRequest {
+    fn pr(id: i64, repo: &str, author: &str, created_at: &str) -> NormalizedPullRequest {
         NormalizedPullRequest {
             id,
             title: format!("PR {id}"),
@@ -124,10 +142,10 @@ mod tests {
             is_draft: false,
             repo_name: repo.into(),
             repository_id: format!("repo-{repo}"),
-            author: "Author".into(),
+            author: author.into(),
             reviewers: vec![],
             target_branch: "main".into(),
-            created_at: "2024-01-01T00:00:00Z".into(),
+            created_at: created_at.into(),
             url: "https://example.com".into(),
             merge_status: "none".into(),
             needs_my_review: false,
@@ -136,9 +154,13 @@ mod tests {
 
     #[test]
     fn groups_rows_by_repo_with_spacers_and_header() {
-        let prs = vec![pr(1, "alpha"), pr(2, "alpha"), pr(3, "beta")];
+        let prs = vec![
+            pr(1, "alpha", "Alice", "2024-01-03T00:00:00Z"),
+            pr(2, "alpha", "Bob", "2024-01-02T00:00:00Z"),
+            pr(3, "beta", "Alice", "2024-01-01T00:00:00Z"),
+        ];
         let refs: Vec<&NormalizedPullRequest> = prs.iter().collect();
-        let rows = build_rows(&refs);
+        let rows = build_rows(&refs, PrListLayout::GroupByRepo);
         let kinds: Vec<&str> = rows
             .iter()
             .map(|r| match r {
@@ -151,26 +173,57 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                "header", "title", "meta", // alpha #1
-                "spacer", "title", "meta", // alpha #2 (same repo -> spacer, no new header)
-                "spacer", "header", "title", "meta", // beta #3 (new repo -> spacer + header)
+                "header", "title", "meta", "spacer", "title", "meta", "spacer", "header", "title",
+                "meta",
             ]
         );
     }
 
     #[test]
-    fn resolve_list_click_row_maps_to_pr_index() {
-        let prs = vec![pr(1, "alpha"), pr(2, "beta")];
+    fn groups_rows_by_author_with_spacers_and_header() {
+        let prs = vec![
+            pr(1, "alpha", "Alice", "2024-01-03T00:00:00Z"),
+            pr(2, "beta", "Alice", "2024-01-02T00:00:00Z"),
+            pr(3, "beta", "Bob", "2024-01-01T00:00:00Z"),
+        ];
         let refs: Vec<&NormalizedPullRequest> = prs.iter().collect();
-        // Row 0 border, chrome rows 0..3 non-clickable, row 3 = header, 4 = title(pr0), 5 = meta(pr0)
-        let clicked = resolve_list_click_row(&refs, 0, 20, 4, false);
+        let rows = build_rows(&refs, PrListLayout::GroupByAuthor);
+        let headers: Vec<&str> = rows
+            .iter()
+            .filter_map(|r| match r {
+                VisualRow::Header { label, .. } => Some(label.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(headers, vec!["Alice", "Bob"]);
+    }
+
+    #[test]
+    fn age_layout_has_no_group_headers() {
+        let prs = vec![
+            pr(1, "alpha", "Alice", "2024-01-03T00:00:00Z"),
+            pr(2, "beta", "Bob", "2024-01-01T00:00:00Z"),
+        ];
+        let refs: Vec<&NormalizedPullRequest> = prs.iter().collect();
+        let rows = build_rows(&refs, PrListLayout::SortByAgeDesc);
+        assert!(!rows.iter().any(|r| matches!(r, VisualRow::Header { .. })));
+    }
+
+    #[test]
+    fn resolve_list_click_row_maps_to_pr_index() {
+        let prs = vec![pr(1, "alpha", "Alice", "2024-01-01T00:00:00Z")];
+        let refs: Vec<&NormalizedPullRequest> = prs.iter().collect();
+        let clicked = resolve_list_click_row(&refs, 0, 20, 4, false, PrListLayout::GroupByRepo);
         assert_eq!(clicked, Some(0));
     }
 
     #[test]
     fn resolve_list_click_row_above_content_returns_none() {
-        let prs = vec![pr(1, "alpha")];
+        let prs = vec![pr(1, "alpha", "Alice", "2024-01-01T00:00:00Z")];
         let refs: Vec<&NormalizedPullRequest> = prs.iter().collect();
-        assert_eq!(resolve_list_click_row(&refs, 0, 20, 0, false), None);
+        assert_eq!(
+            resolve_list_click_row(&refs, 0, 20, 0, false, PrListLayout::GroupByRepo),
+            None
+        );
     }
 }

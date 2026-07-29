@@ -12,7 +12,7 @@ use ratatui::Terminal;
 use tokio::sync::mpsc::{self, UnboundedSender};
 
 use crate::api::types::{AppScreen, ProviderId, PullRequestFilters};
-use crate::config::store::{get_last_project, get_provider_display_context, load_config};
+use crate::config::store::{get_last_list_layout, get_last_project, get_provider_display_context, load_config};
 use crate::providers::registry;
 use crate::providers::ProviderClient;
 
@@ -114,6 +114,8 @@ async fn bootstrap(app: &mut App, tx: &UnboundedSender<AppEvent>) {
             }
         }
     }
+
+    app.list_layout = get_last_list_layout(&config);
 
     app.bootstrapped = true;
 

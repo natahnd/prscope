@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::api::types::NormalizedPullRequest;
+use crate::api::types::{NormalizedPullRequest, PrListLayout};
 use crate::app::comment_activity::CommentActivity;
 use crate::app::pr_key::pr_key_for;
 use crate::app::pr_list_rows::{get_visible_pr_rows, VisualRow};
@@ -66,6 +66,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(vec![
         Span::styled("Filters: ", Style::default().add_modifier(Modifier::DIM)),
         Span::styled(filters_text, Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(" · Group: ", Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(app.list_layout.label(), Style::default().add_modifier(Modifier::DIM)),
     ]));
 
     if displayed.is_empty() {
@@ -74,10 +76,16 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
             Style::default().add_modifier(Modifier::DIM),
         )));
     } else {
-        let visible = get_visible_pr_rows(&displayed, safe_index, inner.height as usize, app.search_mode);
+        let visible = get_visible_pr_rows(
+            &displayed,
+            safe_index,
+            inner.height as usize,
+            app.search_mode,
+            app.list_layout,
+        );
         let inner_width = (inner.width as i64).max(1) as usize;
         for row in &visible.visible {
-            lines.push(render_row(row, &displayed, safe_index, inner_width, app));
+            lines.push(render_row(row, &displayed, safe_index, inner_width, app.list_layout, app));
         }
     }
 
@@ -89,11 +97,12 @@ fn render_row<'a>(
     displayed: &[&NormalizedPullRequest],
     selected_index: usize,
     width: usize,
+    layout: PrListLayout,
     app: &App,
 ) -> Line<'a> {
     match row {
-        VisualRow::Header { repo_name, .. } => Line::from(Span::styled(
-            truncate_chars(repo_name, width),
+        VisualRow::Header { label, .. } => Line::from(Span::styled(
+            truncate_chars(label, width),
             Style::default()
                 .fg(Color::LightBlue)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
@@ -131,8 +140,16 @@ fn render_row<'a>(
             };
             let has_active_comments =
                 app.comment_activity.get(&pr_key_for(pr)) == Some(&CommentActivity::Active);
+            let age = format_compact_age(parse_date(&pr.created_at));
+            let meta_text = match layout {
+                PrListLayout::GroupByRepo => format!("    {} · {}", pr.author, age),
+                PrListLayout::GroupByAuthor => format!("    {} · {}", pr.repo_name, age),
+                PrListLayout::SortByAgeDesc | PrListLayout::SortByAgeAsc => {
+                    format!("    {} · {} · {}", pr.repo_name, pr.author, age)
+                }
+            };
             let mut spans = vec![Span::styled(
-                format!("    {} · {}", pr.author, format_compact_age(parse_date(&pr.created_at))),
+                meta_text,
                 Style::default().add_modifier(Modifier::DIM),
             )];
             if has_active_comments {

@@ -22,7 +22,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
             }
             AppScreen::ProjectSelect => "↑↓ navigate · Enter select · / search · r refresh · q quit",
             AppScreen::PrList => {
-                "j/k navigate/scroll · Tab focus · h/l switch view · s comment filter · y copy panel · Enter open · f filter · p project · / search · r refresh · q quit"
+                "j/k navigate/scroll · Tab focus · h/l switch view · s comment filter · g group · y copy panel · Enter open · f filter · p project · / search · r refresh · q quit"
             }
         }
     };
