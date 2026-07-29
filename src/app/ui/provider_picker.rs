@@ -1,3 +1,5 @@
+//! Rendering for provider selection and provider-specific setup.
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -22,6 +24,7 @@ fn title_block(title: &str) -> Paragraph<'static> {
     .block(block)
 }
 
+/// Renders enabled and planned providers during first-run setup.
 pub fn render_picker(f: &mut Frame, area: Rect, app: &App) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -58,6 +61,7 @@ pub fn render_picker(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(lines), rows[1]);
 }
 
+/// Renders Azure DevOps organization detection and entry state.
 pub fn render_setup(f: &mut Frame, area: Rect, app: &App) {
     let rows = Layout::default()
         .direction(Direction::Vertical)

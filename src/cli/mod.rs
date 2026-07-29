@@ -1,3 +1,5 @@
+//! Command-line definitions and top-level command dispatch.
+
 mod config_cmd;
 mod helpers;
 mod list;
@@ -5,6 +7,7 @@ pub mod plain_output;
 
 use clap::{Args, Parser, Subcommand};
 
+/// Parsed command-line invocation.
 #[derive(Parser, Debug)]
 #[command(
     name = "pr-reviews",
@@ -19,6 +22,7 @@ pub struct Cli {
     pub list: ListArgs,
 }
 
+/// Top-level commands supported by the binary.
 #[derive(Subcommand, Debug)]
 pub enum TopCommand {
     /// List pull requests (interactive TUI by default)
@@ -30,6 +34,7 @@ pub enum TopCommand {
     },
 }
 
+/// Operations supported by `pr-reviews config`.
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommand {
     /// Show current configuration
@@ -48,6 +53,7 @@ pub enum ConfigCommand {
     },
 }
 
+/// Arguments shared by the default invocation and the explicit `list` command.
 #[derive(Args, Clone, Default, Debug)]
 pub struct ListArgs {
     /// Azure DevOps organization
@@ -79,6 +85,7 @@ pub struct ListArgs {
     pub format: Option<String>,
 }
 
+/// Parses command-line arguments, dispatches the command, and reports failures.
 pub async fn run() {
     let cli = Cli::parse();
 

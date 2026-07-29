@@ -1,20 +1,25 @@
+//! Markdown-to-terminal rendering with structured Ratatui styles.
+
 use std::iter::Peekable;
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// A single rendered terminal line: styled spans of (text, style), ready to
-/// hand straight to ratatui. Never carries raw ANSI — styling is always
-/// structured, unlike the TS app's `marked-terminal` output.
+/// A rendered terminal line expressed as text and Ratatui style pairs.
+///
+/// Keeping style metadata separate from text avoids embedding ANSI escapes in
+/// copied content and makes width calculations deterministic.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StyledLine(pub Vec<(String, Style)>);
 
 impl StyledLine {
+    /// Returns the line's text without terminal styling.
     pub fn plain_text(&self) -> String {
         self.0.iter().map(|(t, _)| t.as_str()).collect()
     }
 
+    /// Returns the rendered terminal column width of the line.
     pub fn width(&self) -> usize {
         UnicodeWidthStr::width(self.plain_text().as_str())
     }
@@ -44,10 +49,10 @@ enum Block {
     Rule,
 }
 
-/// Renders markdown (PR descriptions, comment bodies) to styled lines sized
-/// to a fixed column width, glow-style, so it can be dropped straight into a
-/// fixed-height scrollable line list. Falls back to plain wrapped text if
-/// rendering panics (defensive, mirroring the TS app's try/catch fallback).
+/// Renders Markdown into styled lines constrained to a fixed terminal width.
+///
+/// A panic in the renderer falls back to plain wrapped text so malformed or
+/// unexpected Markdown cannot terminate the TUI.
 pub fn render_markdown_to_lines(markdown: &str, width: usize) -> Vec<StyledLine> {
     let trimmed = markdown.trim();
     if trimmed.is_empty() {
@@ -159,10 +164,10 @@ const KNOWN_EMOJI_SHORTCODES: &[&str] = &[
     "clap",
 ];
 
-/// Strips recognized GitHub-style `:shortcode:` emoji markers (e.g.
-/// `:white_check_mark:`), mirroring the TS app's net behavior of rendering
-/// emoji then stripping them again to avoid terminal emoji-width
-/// inconsistencies corrupting layout.
+/// Strips recognized GitHub-style `:shortcode:` emoji markers.
+///
+/// Emoji presentation width varies between terminals, so removing known
+/// decorative markers keeps wrapping and table alignment predictable.
 fn strip_emoji_shortcodes(text: &str) -> String {
     if !text.contains(':') {
         return text.to_string();

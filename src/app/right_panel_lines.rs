@@ -1,3 +1,5 @@
+//! Provider-independent line model for the description and comments panel.
+
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::api::types::{NormalizedPullRequest, PrComment, PrThread};
@@ -8,9 +10,12 @@ use super::detail_cache::PullRequestDetailState;
 use super::markdown::{render_markdown_to_lines, StyledLine};
 use super::wrap_text::strip_html;
 
+/// Public alias used by right-panel line builders and tests.
 pub type RightPanelMode = super::state::RightPanelMode;
+/// Public alias used by right-panel line builders and tests.
 pub type CommentStatusFilter = super::state::CommentStatusFilter;
 
+/// Semantic role of a rendered detail-panel line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineKind {
     Header,
@@ -21,6 +26,7 @@ pub enum LineKind {
     Empty,
 }
 
+/// A styled, selectable line in the description or comments panel.
 #[derive(Debug, Clone)]
 pub struct ContentLine {
     pub key: String,
@@ -48,6 +54,7 @@ impl ContentLine {
         }
     }
 
+    /// Concatenates styled spans into clipboard-safe text.
     pub fn plain_text(&self) -> String {
         self.spans.iter().map(|(t, _)| t.as_str()).collect()
     }
@@ -58,17 +65,19 @@ enum Section {
     File(PrThread),
 }
 
-/// border (top+bottom) + title line + meta line + tab-strip margin + tab-strip line
+/// Total non-content rows used by borders, metadata, and tabs.
 pub const CHROME_ROWS: usize = 6;
 /// Rows before the scrollable content starts: everything in CHROME_ROWS except
 /// the bottom border. Shared by rendering and mouse hit-testing/selection so
 /// they can never drift out of sync.
 pub const CONTENT_TOP_ROWS: usize = CHROME_ROWS - 1;
 
+/// Returns usable text width after borders and horizontal padding.
 pub fn right_panel_content_width(panel_width: u16) -> usize {
     (panel_width as i64 - 4).max(10) as usize
 }
 
+/// Inputs required to build the active detail-panel content.
 pub struct BuildRightPanelLinesArgs<'a> {
     pub pull_request: Option<&'a NormalizedPullRequest>,
     pub detail_state: &'a PullRequestDetailState,
@@ -77,6 +86,7 @@ pub struct BuildRightPanelLinesArgs<'a> {
     pub content_width: usize,
 }
 
+/// Builds the full, unscrolled content for the active detail-panel mode.
 pub fn build_right_panel_lines(args: BuildRightPanelLinesArgs<'_>) -> Vec<ContentLine> {
     let BuildRightPanelLinesArgs {
         pull_request,
@@ -254,12 +264,14 @@ fn format_thread_header(thread: &PrThread) -> String {
     }
 }
 
+/// Borrowed viewport into full detail-panel content.
 pub struct VisibleRightPanelLines<'a> {
     pub visible: &'a [ContentLine],
     pub clamped_scroll: usize,
     pub max_scroll: usize,
 }
 
+/// Clamps a requested scroll offset and returns the visible line slice.
 pub fn get_visible_right_panel_lines(
     lines: &[ContentLine],
     scroll_offset: usize,
@@ -275,6 +287,7 @@ pub fn get_visible_right_panel_lines(
     }
 }
 
+/// Returns the base style for a semantic content line.
 pub fn line_style_for_kind(kind: LineKind, accent: Option<Color>) -> Style {
     match kind {
         LineKind::Empty => Style::default().add_modifier(Modifier::DIM),

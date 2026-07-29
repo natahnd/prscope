@@ -1,3 +1,5 @@
+//! Rendering for the pull request filter modal.
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -9,6 +11,7 @@ use crate::app::filter_modal::{
 };
 use crate::app::state::App;
 
+/// Renders the modal over the PR list panel.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let Some(state) = app.filter_modal.as_ref() else {
         return;

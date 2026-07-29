@@ -1,9 +1,12 @@
+//! Human-readable and JSON output for non-interactive CLI use.
+
 use anyhow::Result;
 use unicode_width::UnicodeWidthStr;
 
 use crate::api::types::NormalizedPullRequest;
 use crate::humanize::{format_distance_to_now, parse_date};
 
+/// Prints pull requests as a width-aware terminal table.
 pub fn print_plain_table(prs: &[NormalizedPullRequest]) {
     if prs.is_empty() {
         println!("No pull requests found.");
@@ -71,6 +74,7 @@ pub fn print_plain_table(prs: &[NormalizedPullRequest]) {
     }
 }
 
+/// Serializes pull requests as pretty-printed JSON.
 pub fn print_plain_json(prs: &[NormalizedPullRequest]) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(prs)?);
     Ok(())
@@ -135,6 +139,7 @@ fn pad(value: &str, width: usize) -> String {
     }
 }
 
+/// Prints a CLI error using a red ANSI foreground.
 pub fn print_error(message: &str) {
     eprintln!("\x1b[31mError: {message}\x1b[0m");
 }

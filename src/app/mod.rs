@@ -1,3 +1,5 @@
+//! Interactive terminal application state, rendering, and input handling.
+
 pub mod open_url;
 pub mod clipboard;
 pub mod comment_activity;

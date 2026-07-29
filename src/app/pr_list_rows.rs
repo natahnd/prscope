@@ -1,5 +1,8 @@
+//! Projection of pull requests into grouped, scrollable visual rows.
+
 use crate::api::types::{NormalizedPullRequest, PrListLayout};
 
+/// One renderable row in the grouped pull request list.
 #[derive(Debug, Clone)]
 pub enum VisualRow {
     Header { key: String, label: String },
@@ -14,6 +17,7 @@ pub enum VisualRow {
 /// never drift out of sync.
 pub const LIST_CHROME_ROWS: usize = 3;
 
+/// Returns non-content rows above the scrollable list.
 pub fn list_chrome_rows(search_mode: bool) -> usize {
     LIST_CHROME_ROWS + if search_mode { 1 } else { 0 }
 }
@@ -26,6 +30,7 @@ fn group_key(pr: &NormalizedPullRequest, layout: PrListLayout) -> &str {
     }
 }
 
+/// Builds group headers, PR rows, and spacers for the selected list layout.
 pub fn build_rows(pull_requests: &[&NormalizedPullRequest], layout: PrListLayout) -> Vec<VisualRow> {
     let mut rows: Vec<VisualRow> = Vec::new();
     let mut last_group: Option<&str> = None;
@@ -68,6 +73,7 @@ pub fn build_rows(pull_requests: &[&NormalizedPullRequest], layout: PrListLayout
     rows
 }
 
+/// Computes a scroll offset that keeps the selected visual row visible.
 pub fn compute_scroll_start(selected_row_index: usize, total: usize, visible_rows: usize) -> usize {
     if total <= visible_rows {
         return 0;
@@ -76,6 +82,7 @@ pub fn compute_scroll_start(selected_row_index: usize, total: usize, visible_row
     start.max(0).min((total - visible_rows) as i64) as usize
 }
 
+/// Complete and viewport-limited visual rows for one render pass.
 pub struct VisiblePrRows {
     pub rows: Vec<VisualRow>,
     pub visible: Vec<VisualRow>,
@@ -84,6 +91,7 @@ pub struct VisiblePrRows {
     pub available_rows: usize,
 }
 
+/// Builds rows and extracts the viewport containing the selected PR.
 pub fn get_visible_pr_rows(
     pull_requests: &[&NormalizedPullRequest],
     selected_index: usize,

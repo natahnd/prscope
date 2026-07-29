@@ -1,3 +1,5 @@
+//! Rendering for the pull request screen header and refresh status.
+
 use std::time::Instant;
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -8,6 +10,7 @@ use ratatui::Frame;
 
 use crate::app::state::App;
 
+/// Renders provider context, project, PR count, and refresh state.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let has_error = app.prs_error.is_some();
     let rows = Layout::default()

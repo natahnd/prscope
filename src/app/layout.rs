@@ -1,3 +1,6 @@
+//! Shared terminal geometry used by rendering and mouse hit-testing.
+
+/// Pixel-free terminal dimensions shared by rendering and pointer handling.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutGeometry {
     /// Absolute terminal row where the list/detail panel row begins.
@@ -7,15 +10,24 @@ pub struct LayoutGeometry {
     pub right_width: u16,
 }
 
+/// Height of the bottom keyboard-hint bar.
 pub const STATUS_BAR_HEIGHT: u16 = 3;
+/// Height of the PR-list screen header.
 pub const HEADER_HEIGHT: u16 = 3;
+/// Extra height reserved while a PR loading error is visible.
 pub const ERROR_LINE_HEIGHT: u16 = 2;
+/// Minimum width assigned to either split panel.
 pub const MIN_PANEL_WIDTH: u16 = 20;
+/// Minimum height assigned to the main panel row.
 pub const MIN_PANEL_HEIGHT: u16 = 5;
+/// Smallest user-selectable width ratio for the left panel.
 pub const MIN_LEFT_WIDTH_RATIO: f64 = 0.15;
+/// Largest user-selectable width ratio for the left panel.
 pub const MAX_LEFT_WIDTH_RATIO: f64 = 0.7;
+/// Initial width ratio for the left panel.
 pub const DEFAULT_LEFT_WIDTH_RATIO: f64 = 0.35;
 
+/// Inputs that affect top-level panel geometry.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutOptions {
     pub has_error: bool,

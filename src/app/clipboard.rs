@@ -1,3 +1,5 @@
+//! Terminal clipboard integration using the OSC 52 protocol.
+
 use base64::Engine;
 
 /// Builds an OSC 52 escape sequence that asks the terminal to set the system

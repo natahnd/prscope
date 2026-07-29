@@ -1,12 +1,15 @@
+//! Shared rules for classifying provider comment-thread statuses.
+
 use crate::api::types::PrThread;
 
 const RESOLVED_STATUSES: [&str; 4] = ["fixed", "wontfix", "closed", "bydesign"];
 
+/// Returns whether a provider status represents a completed thread.
 pub fn is_resolved_status(status: &str) -> bool {
     RESOLVED_STATUSES.contains(&status.to_lowercase().as_str())
 }
 
-/// True if any thread in the list is still unresolved (i.e. needs action).
+/// Returns whether any thread in the list still needs action.
 pub fn has_active_thread(threads: &[PrThread]) -> bool {
     threads.iter().any(|t| !is_resolved_status(&t.status))
 }

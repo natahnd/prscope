@@ -1,3 +1,5 @@
+//! Central application state and background-task event definitions.
+
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -16,18 +18,21 @@ use super::layout::{compute_layout_geometry, LayoutGeometry, LayoutOptions, DEFA
 use super::pr_key::pr_key_for;
 use super::text_selection::SelectionRange;
 
+/// Panel that receives navigation and scrolling input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelFocus {
     List,
     Detail,
 }
 
+/// Content displayed in the right-hand detail panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RightPanelMode {
     Description,
     Comments,
 }
 
+/// Thread-status subset shown in the comments view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommentStatusFilter {
     All,
@@ -36,6 +41,7 @@ pub enum CommentStatusFilter {
 }
 
 impl CommentStatusFilter {
+    /// Advances to the next status filter in the keyboard cycle.
     pub fn next(self) -> Self {
         match self {
             CommentStatusFilter::All => CommentStatusFilter::Active,
@@ -45,9 +51,10 @@ impl CommentStatusFilter {
     }
 }
 
-/// All background-task completions and terminal events the main loop reacts
-/// to. Mirrors the many `useEffect`/callback closures in `App.tsx`, just
-/// funneled through one channel instead of React state updates.
+/// Results produced by background tasks and consumed by the main event loop.
+///
+/// A single channel serializes asynchronous state changes with terminal input,
+/// keeping all mutations of [`App`] on the UI thread.
 pub enum AppEvent {
     ProjectsLoaded {
         last_project: Option<String>,
@@ -80,7 +87,9 @@ pub enum AppEvent {
     },
 }
 
+/// Complete mutable state owned by the terminal event loop.
 pub struct App {
+    // Lifecycle and active provider session.
     pub should_quit: bool,
     pub bootstrapped: bool,
 
@@ -88,7 +97,7 @@ pub struct App {
     pub current_user_id: Option<String>,
     pub screen: AppScreen,
 
-    // Provider setup (Azure DevOps org entry) screen state.
+    // Provider setup and organization entry.
     pub setup_loading: bool,
     pub setup_detecting: bool,
     pub setup_error: Option<String>,
@@ -97,17 +106,20 @@ pub struct App {
     pub spinner_frame: usize,
     pub provider_picker_index: usize,
 
+    // Project selection and provider context.
     pub last_project: Option<String>,
     pub selected_project: Option<String>,
     pub display_context: String,
     pub initial_project: Option<String>,
 
+    // Project picker results and input state.
     pub projects: Vec<Project>,
     pub projects_loading: bool,
     pub projects_error: Option<String>,
     pub project_search: String,
     pub project_index: usize,
 
+    // PR list data, filtering, and selection state.
     pub repositories: Vec<Repository>,
     pub pull_requests: Vec<NormalizedPullRequest>,
     pub prs_loading: bool,
@@ -122,6 +134,7 @@ pub struct App {
     pub filters_hydrated: bool,
     pub list_layout: PrListLayout,
 
+    // Right-panel mode and independent scroll positions.
     pub panel_focus: PanelFocus,
     pub right_mode: RightPanelMode,
     pub comment_status_filter: CommentStatusFilter,
@@ -129,23 +142,28 @@ pub struct App {
     pub comments_scroll: usize,
     pub right_max_scroll: usize,
 
+    // Pointer-driven layout resizing and text selection.
     pub left_width_ratio: f64,
     pub dragging_divider: bool,
     pub right_selection: Option<SelectionRange>,
     pub dragging_selection: bool,
 
+    // Last known terminal dimensions, updated on resize events.
     pub terminal_columns: u16,
     pub terminal_rows: u16,
 
+    // Detail data for the currently selected PR and prior selections.
     pub detail_cache: DetailCache,
     pub detail_state: PullRequestDetailState,
     pub current_detail_key: Option<String>,
 
+    // Background unresolved-comment summaries keyed by repository and PR.
     pub comment_activity: std::collections::HashMap<String, CommentActivity>,
     pub comment_activity_requested: HashSet<String>,
 }
 
 impl App {
+    /// Creates pre-bootstrap state using any CLI-supplied project and filters.
     pub fn new(initial_project: Option<String>, initial_filters: PullRequestFilters) -> Self {
         App {
             should_quit: false,
@@ -212,6 +230,7 @@ impl App {
         }
     }
 
+    /// Computes current panel geometry from terminal size and UI state.
     pub fn geometry(&self) -> LayoutGeometry {
         compute_layout_geometry(
             self.terminal_columns,
@@ -291,6 +310,7 @@ impl App {
         filtered
     }
 
+    /// Clamps the selected PR index to the current filtered result length.
     pub fn safe_selected_index(&self, displayed_len: usize) -> usize {
         if displayed_len == 0 {
             0
@@ -299,8 +319,8 @@ impl App {
         }
     }
 
-    /// Mirrors `sortProjects`/`filtered` in ProjectPicker.tsx: last-used
-    /// project pinned first, then alphabetical, then narrowed by search.
+    /// Returns projects with the last-used project pinned first, followed by
+    /// alphabetical order, then narrowed by the current search text.
     pub fn filtered_projects(&self) -> Vec<&Project> {
         let mut sorted: Vec<&Project> = self.projects.iter().collect();
         if let Some(last) = &self.last_project {
@@ -324,6 +344,7 @@ impl App {
             .collect()
     }
 
+    /// Returns compact labels describing all active PR filters.
     pub fn filter_labels(&self) -> Vec<String> {
         let mut filters = self.filters.clone();
         if filters.search.is_none() && !self.search_query.is_empty() {

@@ -1,8 +1,14 @@
+//! Best-effort discovery of the user's default Azure DevOps organization.
+
 use std::time::Duration;
 
 use tokio::process::Command;
 use tokio::time::timeout;
 
+/// Finds the default organization configured by the Azure DevOps CLI.
+///
+/// CLI output is attempted first, then the extension's config file is read
+/// directly. Detection is best-effort and returns `None` on any failure.
 pub async fn detect_azure_devops_org() -> Option<String> {
     if let Some(org) = detect_from_az_cli().await {
         return Some(org);

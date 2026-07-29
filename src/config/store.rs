@@ -1,3 +1,5 @@
+//! Versioned config loading, migration, persistence, and provider accessors.
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -56,6 +58,10 @@ fn migrate_config(raw: RawAppConfig) -> AppConfigV2 {
     migrated
 }
 
+/// Loads and, when necessary, migrates the application config.
+///
+/// Missing, unreadable, or invalid files intentionally produce a default
+/// config so first-run setup can recover without manual file cleanup.
 pub async fn load_config() -> AppConfigV2 {
     match load_config_inner().await {
         Ok(config) => config,
@@ -74,6 +80,7 @@ async fn load_config_inner() -> Result<AppConfigV2> {
     Ok(config)
 }
 
+/// Persists config as formatted JSON and restricts Unix permissions to `0600`.
 pub async fn save_config(config: &AppConfigV2) -> Result<()> {
     let path = config_path();
     if let Some(parent) = path.parent() {
@@ -86,6 +93,8 @@ pub async fn save_config(config: &AppConfigV2) -> Result<()> {
     tokio::fs::write(&path, &body)
         .await
         .with_context(|| format!("writing config file {}", path.display()))?;
+    // Permission hardening is best-effort because the config is already
+    // durable and some filesystems do not support Unix permission changes.
     set_owner_only_permissions(&path).await;
     Ok(())
 }
@@ -103,6 +112,7 @@ async fn set_owner_only_permissions(path: &PathBuf) {
 #[cfg(not(unix))]
 async fn set_owner_only_permissions(_path: &PathBuf) {}
 
+/// Updates the last project for the active provider.
 pub async fn update_last_project(project: &str) -> Result<()> {
     let mut config = load_config().await;
     let Some(active) = config.active_provider else {
@@ -116,6 +126,7 @@ pub async fn update_last_project(project: &str) -> Result<()> {
     save_config(&config).await
 }
 
+/// Updates the last interactive filter state for the active provider.
 pub async fn update_last_filters(filters: &PullRequestFilters) -> Result<()> {
     let mut config = load_config().await;
     let Some(active) = config.active_provider else {
@@ -129,6 +140,7 @@ pub async fn update_last_filters(filters: &PullRequestFilters) -> Result<()> {
     save_config(&config).await
 }
 
+/// Updates the last PR list grouping or sort layout for the active provider.
 pub async fn update_last_list_layout(layout: PrListLayout) -> Result<()> {
     let mut config = load_config().await;
     let Some(active) = config.active_provider else {
@@ -142,6 +154,7 @@ pub async fn update_last_list_layout(layout: PrListLayout) -> Result<()> {
     save_config(&config).await
 }
 
+/// Activates a provider and saves the settings collected during setup.
 pub async fn save_provider_config(
     provider_id: ProviderId,
     organization: Option<String>,
@@ -159,6 +172,7 @@ pub async fn save_provider_config(
     Ok(config)
 }
 
+/// Partial update accepted by the `config set` command.
 #[derive(Debug, Clone, Default)]
 pub struct ConfigValuesPatch {
     pub org: Option<String>,
@@ -166,6 +180,7 @@ pub struct ConfigValuesPatch {
     pub pat: Option<String>,
 }
 
+/// Applies a partial config update without clearing unspecified values.
 pub async fn set_config_values(values: ConfigValuesPatch) -> Result<AppConfigV2> {
     let mut config = load_config().await;
 
@@ -189,10 +204,12 @@ pub async fn set_config_values(values: ConfigValuesPatch) -> Result<AppConfigV2>
     Ok(config)
 }
 
+/// Returns the resolved path to the application config file.
 pub fn get_config_path() -> PathBuf {
     config_path()
 }
 
+/// Returns the provider context shown in screen headers.
 pub fn get_provider_display_context(config: &AppConfigV2) -> String {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         return config
@@ -208,6 +225,7 @@ pub fn get_provider_display_context(config: &AppConfigV2) -> String {
         .unwrap_or_default()
 }
 
+/// Returns the last project for the active provider.
 pub fn get_last_project(config: &AppConfigV2) -> Option<String> {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         return config
@@ -219,6 +237,7 @@ pub fn get_last_project(config: &AppConfigV2) -> Option<String> {
     None
 }
 
+/// Returns the last filters saved by the interactive view.
 pub fn get_last_filters(config: &AppConfigV2) -> Option<PullRequestFilters> {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         return config
@@ -230,6 +249,7 @@ pub fn get_last_filters(config: &AppConfigV2) -> Option<PullRequestFilters> {
     None
 }
 
+/// Returns the saved PR list layout or its default.
 pub fn get_last_list_layout(config: &AppConfigV2) -> PrListLayout {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         if let Some(layout) = config

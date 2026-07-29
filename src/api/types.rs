@@ -1,5 +1,8 @@
+//! Provider-neutral application models and Azure DevOps wire-format types.
+
 use serde::{Deserialize, Serialize};
 
+/// Pull request lifecycle states accepted by the CLI and provider clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PullRequestStatus {
@@ -27,6 +30,7 @@ impl std::fmt::Display for PullRequestStatus {
     }
 }
 
+/// Controls whether draft pull requests appear in results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DraftFilter {
@@ -41,6 +45,7 @@ impl Default for DraftFilter {
     }
 }
 
+/// Controls whether the PR list is restricted to unresolved comment activity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CommentActivityFilter {
@@ -54,6 +59,7 @@ impl Default for CommentActivityFilter {
     }
 }
 
+/// Stable identifier used to select provider-specific configuration and clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderId {
@@ -71,6 +77,7 @@ impl std::fmt::Display for ProviderId {
     }
 }
 
+/// Persisted Azure DevOps settings and last-used UI state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AzureDevOpsProviderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,6 +90,7 @@ pub struct AzureDevOpsProviderConfig {
     pub last_list_layout: Option<PrListLayout>,
 }
 
+/// Reserved persisted settings for the planned GitHub provider.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GitHubProviderConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,6 +99,7 @@ pub struct GitHubProviderConfig {
     pub last_repo: Option<String>,
 }
 
+/// Provider-specific sections in the versioned application config.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProviderConfigs {
     #[serde(rename = "azure-devops", skip_serializing_if = "Option::is_none")]
@@ -115,6 +124,7 @@ pub struct RawAppConfig {
     pub last_project: Option<String>,
 }
 
+/// Current on-disk configuration schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfigV2 {
     pub version: u32,
@@ -137,6 +147,7 @@ impl Default for AppConfigV2 {
     }
 }
 
+/// Authenticated identity returned by Azure DevOps connection metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdoIdentity {
     pub id: String,
@@ -148,6 +159,7 @@ pub struct AdoIdentity {
     pub display_name: String,
 }
 
+/// Provider-neutral reviewer data displayed in list and plain output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdoReviewer {
     #[serde(rename = "displayName")]
@@ -159,6 +171,7 @@ pub struct AdoReviewer {
     pub is_current_user: bool,
 }
 
+/// Provider-neutral pull request summary used throughout the application.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedPullRequest {
     pub id: i64,
@@ -183,6 +196,7 @@ pub struct NormalizedPullRequest {
     pub needs_my_review: bool,
 }
 
+/// Pull request summary plus lazily loaded detail data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequestDetail {
     #[serde(flatten)]
@@ -199,6 +213,7 @@ impl std::ops::Deref for PullRequestDetail {
     }
 }
 
+/// Normalized user-authored pull request comment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrComment {
     pub id: i64,
@@ -208,6 +223,7 @@ pub struct PrComment {
     pub published_at: String,
 }
 
+/// Normalized comment thread, optionally anchored to a file and line range.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrThread {
     pub id: i64,
@@ -221,6 +237,7 @@ pub struct PrThread {
     pub comments: Vec<PrComment>,
 }
 
+/// One line of provider-supplied source context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeSnippetLine {
     pub number: i64,
@@ -228,6 +245,7 @@ pub struct CodeSnippetLine {
     pub highlight: bool,
 }
 
+/// Source context surrounding a file comment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeSnippet {
     #[serde(rename = "filePath")]
@@ -237,6 +255,7 @@ pub struct CodeSnippet {
     pub center_line: i64,
 }
 
+/// Provider-neutral filters shared by interactive and plain listing modes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PullRequestFilters {
     pub status: PullRequestStatus,
@@ -303,6 +322,7 @@ pub enum PrListLayout {
 }
 
 impl PrListLayout {
+    /// Advances to the next layout in the user-facing cycle.
     pub fn next(self) -> Self {
         match self {
             PrListLayout::GroupByRepo => PrListLayout::GroupByAuthor,
@@ -312,6 +332,7 @@ impl PrListLayout {
         }
     }
 
+    /// Returns the compact label displayed in the list panel.
     pub fn label(self) -> &'static str {
         match self {
             PrListLayout::GroupByRepo => "repos",
@@ -321,11 +342,13 @@ impl PrListLayout {
         }
     }
 
+    /// Returns whether this layout inserts group headers between PR rows.
     pub fn groups(self) -> bool {
         !matches!(self, PrListLayout::SortByAgeDesc | PrListLayout::SortByAgeAsc)
     }
 }
 
+/// Azure DevOps project payload used by the project picker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdoProject {
     pub id: String,
@@ -334,22 +357,27 @@ pub struct AdoProject {
     pub description: Option<String>,
 }
 
+/// Provider-facing project model.
 pub type Project = AdoProject;
 
+/// Azure DevOps repository payload used by filters and PR metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdoRepository {
     pub id: String,
     pub name: String,
 }
 
+/// Provider-facing repository model.
 pub type Repository = AdoRepository;
 
+/// Azure DevOps connection metadata response.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConnectionData {
     #[serde(rename = "authenticatedUser")]
     pub authenticated_user: AdoIdentity,
 }
 
+/// Generic Azure DevOps collection response.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiListResponse<T> {
     #[allow(dead_code)]
@@ -357,12 +385,14 @@ pub struct ApiListResponse<T> {
     pub value: Vec<T>,
 }
 
+/// Repository reference embedded in an Azure DevOps pull request payload.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawRepositoryRef {
     pub id: String,
     pub name: String,
 }
 
+/// Identity reference embedded in Azure DevOps API payloads.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawIdentityRef {
     #[allow(dead_code)]
@@ -371,6 +401,7 @@ pub struct RawIdentityRef {
     pub display_name: String,
 }
 
+/// Reviewer representation returned by Azure DevOps.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawReviewer {
     pub id: String,
@@ -381,6 +412,7 @@ pub struct RawReviewer {
     pub is_required: Option<bool>,
 }
 
+/// Raw Azure DevOps pull request payload before normalization.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawPullRequest {
     #[serde(rename = "pullRequestId")]
@@ -402,12 +434,14 @@ pub struct RawPullRequest {
     pub reviewers: Option<Vec<RawReviewer>>,
 }
 
+/// Source commit reference embedded in pull request detail responses.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawLastMergeSourceCommit {
     #[serde(rename = "commitId")]
     pub commit_id: String,
 }
 
+/// Raw Azure DevOps detail payload before normalization.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawPullRequestDetail {
     #[serde(flatten)]
@@ -417,6 +451,7 @@ pub struct RawPullRequestDetail {
     pub last_merge_source_commit: Option<RawLastMergeSourceCommit>,
 }
 
+/// Line and character position in an Azure DevOps thread context.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawCommentPosition {
     pub line: i64,
@@ -424,6 +459,7 @@ pub struct RawCommentPosition {
     pub offset: i64,
 }
 
+/// File location metadata attached to an Azure DevOps comment thread.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawCommentThreadContext {
     #[serde(rename = "filePath")]
@@ -438,6 +474,7 @@ pub struct RawCommentThreadContext {
     pub left_file_end: Option<RawCommentPosition>,
 }
 
+/// Raw Azure DevOps comment payload before system comments are removed.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawComment {
     #[allow(dead_code)]
@@ -450,6 +487,7 @@ pub struct RawComment {
     pub author: RawIdentityRef,
 }
 
+/// Raw Azure DevOps thread payload before status and location normalization.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawThread {
     pub id: i64,
@@ -461,6 +499,7 @@ pub struct RawThread {
     pub comments: Vec<RawComment>,
 }
 
+/// Top-level screens in the interactive setup and review flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppScreen {
     ProviderSelect,
@@ -469,6 +508,7 @@ pub enum AppScreen {
     PrList,
 }
 
+/// Returns whether the active provider has enough persisted data to initialize.
 pub fn is_configured_provider(config: &AppConfigV2) -> bool {
     let Some(active) = config.active_provider else {
         return false;
@@ -484,6 +524,7 @@ pub fn is_configured_provider(config: &AppConfigV2) -> bool {
     }
 }
 
+/// Returns Azure DevOps settings, using defaults when no section exists yet.
 pub fn get_azure_devops_config(config: &AppConfigV2) -> AzureDevOpsProviderConfig {
     config.providers.azure_devops.clone().unwrap_or_default()
 }

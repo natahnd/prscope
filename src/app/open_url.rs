@@ -1,3 +1,5 @@
+//! Cross-platform opening of pull request URLs in the user's browser.
+
 use std::io;
 use std::path::Path;
 use std::process::Command;
@@ -12,10 +14,9 @@ const WSL_POWERSHELL_PATHS: &[&str] = &[
 
 /// Opens a URL in the user's default browser.
 ///
-/// On WSL, mirrors the TypeScript app's `open` + `wsl-utils` behavior: invoke
-/// Windows PowerShell via its full path with a Base64-encoded `Start "url"`
-/// command. The Rust `open` crate's WSL path relies on `powershell.exe` being on
-/// PATH and passes the target via an env var that WSL interop does not forward.
+/// On WSL, invokes Windows PowerShell by its mounted path with an encoded
+/// command. This avoids depending on `powershell.exe` being present on the
+/// Linux `PATH` or on environment variables crossing the WSL boundary.
 pub fn open_url(url: &str) -> io::Result<()> {
     if is_wsl() {
         for ps in WSL_POWERSHELL_PATHS {
@@ -59,8 +60,8 @@ fn open_via_powershell(powershell: &str, url: &str) -> io::Result<()> {
     }
 }
 
-/// Encodes `Start "<url>"` as UTF-16LE Base64 for PowerShell's `-EncodedCommand`,
-/// matching the `open` npm package on WSL.
+/// Encodes `Start "<url>"` as UTF-16LE Base64 for PowerShell's
+/// `-EncodedCommand` argument.
 fn encode_powershell_start_command(url: &str) -> String {
     let command = format!("Start \"{url}\"");
     let bytes: Vec<u8> = command.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();

@@ -1,3 +1,5 @@
+//! Core library for the PR Reviews CLI and terminal application.
+
 pub mod api;
 pub mod app;
 pub mod cli;

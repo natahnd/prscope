@@ -1,3 +1,5 @@
+//! Background discovery of unresolved comment activity for PR list rows.
+
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -11,6 +13,7 @@ use super::comment_status::has_active_thread;
 use super::pr_key::pr_key_for;
 use super::AppEvent;
 
+/// Summary of whether a pull request has actionable comment threads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommentActivity {
     Active,
@@ -20,10 +23,11 @@ pub enum CommentActivity {
 
 const CONCURRENCY: usize = 6;
 
-/// Lazily fetches each PR's comment threads in the background (bounded
-/// concurrency via a semaphore) to determine whether it has any unresolved
-/// thread. `requested` persists for the whole app run (like the TS hook's
-/// ref), so a project switch only fetches PRs not already seen.
+/// Lazily fetches comment threads with bounded concurrency to determine which
+/// pull requests still have unresolved feedback.
+///
+/// `requested` lives for the full application run, so repeated refreshes or
+/// project switches do not enqueue duplicate work for an already-seen PR key.
 pub fn spawn_missing_comment_activity(
     client: Arc<dyn ProviderClient>,
     project: String,

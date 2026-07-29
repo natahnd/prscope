@@ -1,3 +1,5 @@
+//! Context-sensitive keyboard hints shown at the bottom of the TUI.
+
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -7,6 +9,7 @@ use ratatui::Frame;
 use crate::api::types::AppScreen;
 use crate::app::state::App;
 
+/// Renders controls relevant to the active screen or modal.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let hint: &str = if app.filter_modal_open {
         "↑↓ navigate · Space toggle · Enter apply · Esc cancel"

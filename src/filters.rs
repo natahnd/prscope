@@ -1,7 +1,10 @@
+//! Translation of CLI filter arguments into provider-neutral filter models.
+
 use anyhow::{bail, Result};
 
 use crate::api::types::{PullRequestFilters, PullRequestStatus};
 
+/// CLI values relevant to pull request filtering.
 #[derive(Debug, Clone, Default)]
 pub struct ListCommandOptions {
     #[allow(dead_code)]
@@ -16,6 +19,10 @@ pub struct ListCommandOptions {
     pub format: Option<String>,
 }
 
+/// Converts CLI options into the provider-neutral filter model.
+///
+/// Identity-relative filters such as `--mine` and `--reviewer me` are only
+/// applied when the caller has already resolved the current user's ID.
 pub fn build_filters(
     options: &ListCommandOptions,
     current_user_id: Option<&str>,

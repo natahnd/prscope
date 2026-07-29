@@ -1,157 +1,223 @@
-# pr-reviews
+# PR Reviews
 
-A keyboard-driven terminal UI for reviewing pull requests across repositories. Built with [ratatui](https://ratatui.rs) and [crossterm](https://github.com/crossterm-rs/crossterm) as a single self-contained binary. Azure DevOps is supported today; the provider registry is ready for GitHub and others.
+> A fast, keyboard-first terminal UI for reviewing pull requests across Azure DevOps repositories.
 
-## Features
+[![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust)](https://www.rust-lang.org/)
+[![Azure DevOps](https://img.shields.io/badge/Azure_DevOps-supported-0078D7?logo=azuredevops)](#provider-support)
+[![GitHub](https://img.shields.io/badge/GitHub-provider_planned-6e7681?logo=github)](#provider-support)
 
-- **Add Provider** flow on first run — pick Azure DevOps (GitHub shown as coming soon)
-- **Auto-detect org** from `az devops configure` when setting up Azure DevOps
-- **Remembers your last project** — launches straight into it next time; the project picker only shows on first run or when you press `p`
-- **Remembers your filters** — whatever you set via the Filter modal or search is saved and restored on the next launch; passing explicit CLI filter flags (`--status`, `--repo`, `--author`, `--reviewer`, `--mine`) overrides the saved filters for that run only
-- **Lazygit-style split layout** — PR list on the left, grouped by repository; a fixed-height panel on the right toggles between description and comments (`h`/`l`), both independently scrollable so the UI never jumps around
-- **Filters** — status, repository, drafts (show all/hide/only), active comments (all PRs / only PRs with active comments — see which PRs still need action), reviewer/author (me), text search
-- **Keyboard navigation** — j/k, Tab to switch panel focus, h/l to switch description/comments, Enter to open in browser, `p` to switch projects
-- **Mouse support** — click a PR to select it, click either panel to focus it, drag the divider between panels to resize them, scroll the wheel to navigate/scroll, drag-select text in the description/comments panel (confined to that panel, never bleeds into the PR list); press `y` any time to copy the whole panel's current content (respecting whatever filter is applied)
-- **Dual auth** — Azure CLI session or Personal Access Token
-- **Structured styling** — content is rendered as `(text, Style)` spans rather than baked-in ANSI escape codes, so clipboard copy is always clean plain text
+PR Reviews brings pull request triage into one focused terminal workspace. Browse every repository in an Azure DevOps project, inspect Markdown descriptions and comment threads, filter down to the work that needs attention, and open a PR in the browser when it is time to review.
+
+Built with [Ratatui](https://ratatui.rs/) and [Crossterm](https://github.com/crossterm-rs/crossterm), it ships as a single Rust binary with both an interactive TUI and script-friendly output.
+
+## Highlights
+
+| | |
+|---|---|
+| **Cross-repository view** | See pull requests from every repository in the selected Azure DevOps project. |
+| **Review context** | Read rendered Markdown descriptions, inline comments, thread locations, and resolution states without leaving the terminal. |
+| **Action-focused filtering** | Filter by status, repository, draft state, author, reviewer, active comments, or free-text search. |
+| **Flexible organization** | Group by repository or author, or sort by newest and oldest. |
+| **Keyboard and mouse support** | Navigate with Vim-style keys, click rows, scroll panels, resize the split view, and select text. |
+| **Persistent workspace** | Restore the last project, filters, and list layout automatically. |
+| **Automation-friendly output** | Export pull requests as a terminal table or JSON with `--plain`. |
 
 ## Requirements
 
-- [Rust](https://rustup.rs) 1.75+ (stable toolchain, 2021 edition)
-- Azure CLI (`az`) with **azure-devops** extension, logged in **or** `AZURE_DEVOPS_PAT`
+- A stable [Rust toolchain](https://rustup.rs/)
+- Access to an Azure DevOps organization and project
+- One of:
+  - An authenticated [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) session
+  - An Azure DevOps Personal Access Token in `AZURE_DEVOPS_PAT`
 
-## Install
-
-```bash
-cargo build --release
-# binary at target/release/pr-reviews
-```
-
-Optionally install it onto your `PATH`:
+The Azure CLI `azure-devops` extension is optional, but enables automatic organization detection during setup:
 
 ```bash
-cargo install --path .
-```
-
-## Quick start
-
-```bash
-# First run: Add Provider → Azure DevOps → org (auto-detected if az devops configured)
-cargo run
-
-# Returning user: straight to your last-used project's PR list
-cargo run
-
-# Or after `cargo install --path .`
-pr-reviews
-```
-
-## First-run flow
-
-1. **Add Provider** — select Azure DevOps (GitHub is visible but disabled)
-2. **Azure DevOps setup** — org pre-filled from `az devops configure` if available
-3. **Project picker** — choose a project
-4. **PR list** — review pull requests
-
-## Authentication
-
-1. **Azure CLI (preferred):** `az login` — uses your existing session for Azure DevOps API calls.
-2. **PAT fallback:** Set `AZURE_DEVOPS_PAT` or `pr-reviews config set --pat <token>`.
-
-Configure your default DevOps org once with Azure CLI (optional, enables auto-detect):
-
-```bash
+az extension add --name azure-devops
 az devops configure --defaults organization=https://dev.azure.com/your-org
 ```
 
-Config is stored at `~/.config/pr-reviews/config.json` (v2 schema, respects `XDG_CONFIG_HOME`).
+## Installation
+
+Install the latest version directly from GitHub:
+
+```bash
+cargo install --git https://github.com/natahnd/prscope.git
+```
+
+Or build it locally:
+
+```bash
+git clone https://github.com/natahnd/prscope.git
+cd prscope
+cargo install --path .
+```
+
+The installed command is `pr-reviews`.
+
+## Quick Start
+
+Authenticate with either Azure CLI:
+
+```bash
+az login
+```
+
+Or a Personal Access Token:
+
+```bash
+export AZURE_DEVOPS_PAT="your-token"
+```
+
+Then launch the app:
+
+```bash
+pr-reviews
+```
+
+On first run:
+
+1. Select **Azure DevOps** as the provider.
+2. Confirm or enter your organization name.
+3. Choose an Azure DevOps project.
+4. Start browsing pull requests.
+
+Future launches return directly to the last selected project.
+
+## Authentication
+
+Credentials are resolved in this order:
+
+1. Azure CLI access token from the current `az login` session
+2. `AZURE_DEVOPS_PAT` environment variable
+3. PAT saved with `pr-reviews config set --pat <token>`
+
+Using the environment variable is recommended for PAT-based authentication. A PAT saved through the config command is stored locally in the application config file; on Unix, the file is restricted to the current user with `0600` permissions.
 
 ## Usage
 
+### Interactive TUI
+
 ```bash
-# Interactive TUI
+# Open the last-used project
 pr-reviews
 
-# Plain output for scripting (skips TUI)
-pr-reviews list --org myorg --project MyProject --plain
-pr-reviews list --org myorg --project MyProject --plain --format json
+# Open a specific project
+pr-reviews --project "My Project"
 
-# Config
-pr-reviews config set --org myorg
+# Start with a narrower pull request list
+pr-reviews --project "My Project" --status active --repo api
+```
+
+Supported status values are `active`, `completed`, `abandoned`, and `all`.
+
+Run `pr-reviews --help` or `pr-reviews list --help` for the complete CLI reference.
+
+### Plain and JSON Output
+
+Plain mode skips the TUI and requires a project:
+
+```bash
+# Human-readable table
+pr-reviews list \
+  --org my-org \
+  --project "My Project" \
+  --plain
+
+# JSON for scripts, jq, or CI jobs
+pr-reviews list \
+  --org my-org \
+  --project "My Project" \
+  --status active \
+  --reviewer me \
+  --plain \
+  --format json
+```
+
+If the organization is already configured, `--org` can be omitted.
+
+### Configuration
+
+```bash
+# Set defaults
+pr-reviews config set --org my-org --project "My Project"
+
+# Inspect the current configuration
 pr-reviews config show
 ```
 
-## Adding a provider
+Configuration is stored at:
 
-1. Implement the `ProviderClient` trait (`src/providers/mod.rs`) for the new provider in `src/providers/<id>/`
-2. Register it in `src/providers/registry.rs` (`list_providers()`)
-3. Set `enabled: true` when ready
+```text
+${XDG_CONFIG_HOME:-~/.config}/pr-reviews/config.json
+```
+
+The application automatically persists the last project, pull request filters, and list grouping. Explicit CLI filter flags override saved filters for that run.
+
+> [!CAUTION]
+> `pr-reviews config show` prints the complete configuration, including a saved PAT. Avoid running it in shared terminals or CI logs.
 
 ## Keybindings
 
-### Add Provider
+### Pull Request View
 
 | Key | Action |
-|-----|--------|
-| ↑/↓ or j/k | Navigate |
-| Enter | Add selected provider (disabled providers ignored) |
-| q | Quit |
+|---|---|
+| `j` / `k`, `↑` / `↓` | Move through pull requests or scroll the focused detail panel |
+| `Tab` | Switch focus between the pull request list and detail panel |
+| `h` / `l`, `←` / `→` | Switch between Description and Comments |
+| `s` | Cycle comments through all, active, and resolved |
+| `g` | Cycle repository, author, newest, and oldest layouts |
+| `f` | Open the filter modal |
+| `/` | Search pull requests |
+| `y` | Copy all content from the current detail view |
+| `Enter` / `o` | Open the selected pull request in a browser |
+| `p` | Switch Azure DevOps project |
+| `r` | Refresh pull requests |
+| `q` / `Ctrl+C` | Quit |
 
-### Azure DevOps setup
+### Pickers and Modals
 
-| Key | Action |
-|-----|--------|
-| Enter | Save org and continue |
-| q | Quit |
+| Context | Keys |
+|---|---|
+| Provider picker | `j` / `k` or arrows to navigate, `Enter` to select |
+| Project picker | Type to search, `j` / `k` or arrows to navigate, `Enter` to select, `r` to refresh |
+| Filter modal | `j` / `k` to move, `h` / `l` to change options, `Space` to toggle, `Enter` to apply, `Esc` to cancel |
 
-### Project picker
+### Mouse
 
-| Key | Action |
-|-----|--------|
-| ↑/↓ or j/k | Navigate |
-| Enter | Select project |
-| / | Search projects |
-| r | Refresh |
-| q | Quit |
+- Click a pull request to select it.
+- Click a panel to focus it.
+- Scroll over either panel to navigate its content.
+- Drag the divider to resize the split layout.
+- Drag across the detail panel to highlight text.
 
-### PR list
+Pressing `y` copies the complete rendered content of the active detail view, not only the visible lines or highlighted selection. Copying uses OSC 52 and works in most modern local and SSH terminals, including iTerm2, Kitty, WezTerm, and Windows Terminal.
 
-The right side is a single fixed-height panel that toggles between **Description** and **Comments** for the selected PR (`h`/`l` to switch, `Tab` to move focus there). Both views are independently scrollable so long descriptions or comment threads never resize the UI. Comments are shown as `path/to/file: Line X` (or `Line X-Y` for a range) followed by the full, untruncated comment text. Descriptions and comment bodies are rendered as Markdown (via `pulldown-cmark`) — headings, bold/italic, lists, code spans, and tables get proper terminal styling instead of raw `#`/`**`/`` ` `` syntax. In Comments, press `s` to cycle between all comments, active-only, and resolved-only; resolved threads are also tagged (e.g. `[fixed]`) and shown in green even when the filter is off.
+## Filters and Comments
 
-The list itself fetches each PR's comment thread status in the background and tags rows with unresolved threads as `· active comments`, so you can tell at a glance which PRs still need action. Use the Filter modal's **Comments** column to isolate them across the whole list.
+The filter modal supports:
 
-| Key | Action |
-|-----|--------|
-| ↑/↓ or j/k | Navigate PR list, or scroll the description/comments panel when it's focused |
-| Tab | Toggle focus between PR list and the description/comments panel |
-| h/l or ←/→ | Switch the right panel between Description and Comments (when it's focused) |
-| s | Cycle the comments filter: all → active → resolved (when Comments is focused) |
-| g | Cycle list grouping: repos → author → age↓ → age↑ |
-| y | Copy the whole description/comments panel's current content (respects the active filter) |
-| Enter / o | Open PR in browser |
-| p | Switch project |
-| f | Filter modal |
-| / | Search PRs |
-| r | Refresh |
-| q | Quit |
+- Pull request status
+- Repository
+- Drafts: show all, hide, or only
+- Active comment threads
+- Authored by you
+- Assigned to you as reviewer
+- Text search
 
-**Mouse:** click a PR row to select it and view its details; click the list or the right panel to focus it; drag the border between the two panels left/right to resize them; scroll the wheel over either panel to navigate the list or scroll the focused content.
+Comment activity is loaded in the background. Pull requests with unresolved threads are marked in the list, while the Comments view can cycle between all, active, and resolved threads. File comments include their path and line range.
 
-**Text selection:** click-and-drag over the description/comments panel selects text the same way you'd expect in a normal terminal, but the selection is confined to that panel — dragging out over the PR list (or past the panel's edges) never pulls list content into it. The selection stays highlighted after you release the drag, purely for reading/reference — it doesn't drive what gets copied. A plain click with no drag just focuses the panel and clears any existing selection.
+Descriptions and comments support terminal-styled Markdown, including headings, emphasis, lists, inline code, fenced code, and tables.
 
-**Copying (`y`):** press `y` at any time to copy the *entire* current content of the description/comments panel — not just what's on screen or selected — to your system clipboard via an OSC 52 escape sequence, which works locally and over SSH on most modern terminals (iTerm2, Kitty, WezTerm, Windows Terminal, etc). Whatever's currently filtered/toggled is exactly what gets copied: e.g. if the comments filter is set to active-only, `y` copies just the active comment threads (with their `path/to/file: Line X` headers and full text), not the full unfiltered list.
+## Provider Support
 
-## Project layout
+| Provider | Status |
+|---|---|
+| Azure DevOps | Supported |
+| GitHub | Planned; visible as a disabled provider in the setup screen |
 
-```
-src/
-  api/           Shared types (PRs, filters, config schema)
-  cli/           Clap CLI definitions, plain/JSON output, dispatch
-  config/        Config file load/save + v1→v2 migration
-  providers/     ProviderClient trait, registry, Azure DevOps implementation
-  app/           TUI: state, event loop, rendering (ui/), input handling,
-                 markdown renderer, layout geometry, text selection
-```
+Providers implement a shared `ProviderClient` interface, keeping the application ready for additional hosting services.
 
 ## Development
 
@@ -159,13 +225,46 @@ src/
 cargo build
 cargo run
 cargo test
-cargo clippy
+cargo clippy --all-targets --all-features
 ```
 
-### WSL browser opening
+Project structure:
 
-On WSL, `Enter`/`o` opens URLs via Windows PowerShell (`Start "url"`), so no extra config is needed. For other CLI tools in WSL that use `xdg-open`, install `wslu` and set `export BROWSER=wslview` in your shell profile.
+```text
+src/
+├── api/          Shared pull request, filter, and configuration types
+├── app/          TUI state, event loop, rendering, input, and detail views
+├── cli/          Command definitions plus table and JSON output
+├── config/       Config persistence and schema migration
+└── providers/    Provider interface, registry, and Azure DevOps client
+```
 
-### A note on `NO_COLOR`
+To add a provider:
 
-Colors are rendered via `crossterm`, which honors the [`NO_COLOR`](https://no-color.org/) convention: if `NO_COLOR` is set in the environment, all foreground/background colors are suppressed (text attributes like bold/dim still render). Don't set `NO_COLOR` if you want the normal styled UI, including the text-selection highlight.
+1. Implement `ProviderClient` in `src/providers/<provider>/`.
+2. Register it in `src/providers/registry.rs`.
+3. Enable it in the provider registry when the implementation is ready.
+
+## Terminal Notes
+
+- **WSL:** Browser links open through Windows PowerShell automatically.
+- **Remote sessions:** Ensure OSC 52 clipboard access is enabled in your terminal or multiplexer.
+- **No color:** Set [`NO_COLOR`](https://no-color.org/) to disable foreground and background colors.
+
+## Contributing
+
+Issues and pull requests are welcome. Before submitting a change, run:
+
+```bash
+cargo fmt --check
+cargo test
+cargo clippy --all-targets --all-features
+```
+
+### Commenting Standard
+
+- Start each module with `//!` documentation that states its responsibility.
+- Use `///` on public APIs to describe contracts, side effects, and important defaults.
+- Use inline `//` comments for constraints, invariants, compatibility decisions, and non-obvious failure handling.
+- Explain why the code takes an approach; do not narrate syntax or repeat names.
+- Describe the current design rather than preserving implementation history from earlier versions.

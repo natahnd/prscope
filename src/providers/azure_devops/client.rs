@@ -1,3 +1,5 @@
+//! Azure DevOps REST client and conversion into provider-neutral models.
+
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -10,9 +12,10 @@ use crate::api::types::{
 use crate::providers::{CurrentUser, ProviderClient};
 
 const API_VERSION: &str = "7.0";
-/// connectionData is preview-only; stable 7.x returns HTTP 400 without -preview.
+/// `connectionData` is preview-only; stable 7.x returns HTTP 400.
 const CONNECTION_DATA_API_VERSION: &str = "7.0-preview.1";
 
+/// Read-only Azure DevOps implementation of [`ProviderClient`].
 pub struct AzureDevOpsClient {
     token: String,
     organization: String,
@@ -20,6 +23,7 @@ pub struct AzureDevOpsClient {
 }
 
 impl AzureDevOpsClient {
+    /// Creates a client for one organization using a bearer token or PAT.
     pub fn new(token: String, organization: String) -> Self {
         AzureDevOpsClient {
             token,
@@ -103,6 +107,8 @@ impl ProviderClient for AzureDevOpsClient {
         let mut skip = 0i64;
         let top = 100i64;
 
+        // This endpoint does not expose the continuation-token pattern used by
+        // some Azure APIs, so page until a short `$top` response is returned.
         loop {
             let url = format!(
                 "{}/_apis/projects?$top={}&$skip={}&api-version={}",
@@ -142,6 +148,8 @@ impl ProviderClient for AzureDevOpsClient {
         filters: &PullRequestFilters,
         current_user_id: Option<&str>,
     ) -> Result<Vec<NormalizedPullRequest>> {
+        // Push identity and lifecycle filters to Azure DevOps when the API
+        // supports them. Name, draft, and text filters run after normalization.
         let mut params: Vec<(String, String)> =
             vec![("api-version".into(), API_VERSION.into())];
         if filters.status != PullRequestStatus::All {
@@ -296,10 +304,13 @@ impl ProviderClient for AzureDevOpsClient {
         }
         .await;
 
+        // Source context is optional enrichment; permission or file lookup
+        // failures should not prevent comments themselves from rendering.
         Ok(result.ok())
     }
 }
 
+/// Creates an Azure DevOps client and validates that an organization is set.
 pub fn create_azure_devops_client(
     token: String,
     organization: Option<String>,
@@ -364,6 +375,8 @@ fn normalize_pull_request(
 
 fn normalize_thread(thread: RawThread) -> PrThread {
     let context = thread.thread_context;
+    // Prefer the right side of the diff (the proposed file), falling back to
+    // the left side for comments attached to removed lines.
     let position = context
         .as_ref()
         .and_then(|c| c.right_file_start.clone().or(c.left_file_start.clone()));

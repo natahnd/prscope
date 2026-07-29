@@ -1,3 +1,5 @@
+//! State transitions for keyboard, mouse, and filter-driven application events.
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton as CtMouseButton, MouseEvent, MouseEventKind};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -21,6 +23,7 @@ use crate::providers::registry;
 
 use super::runner::{load_projects, load_pull_requests, spawn_ado_org_detect};
 
+/// Builds the complete content currently exposed by the detail panel.
 pub fn current_right_panel_lines(app: &App) -> Vec<ContentLine> {
     let displayed = app.displayed_prs();
     let safe_index = app.safe_selected_index(displayed.len());
@@ -36,9 +39,10 @@ pub fn current_right_panel_lines(app: &App) -> Vec<ContentLine> {
     })
 }
 
-/// Keeps `detail_state`/`detail_cache` in sync with whatever PR is currently
-/// selected, mirroring `usePullRequestDetail`. Called after every event that
-/// could change the selection.
+/// Synchronizes the active detail state with the currently selected PR.
+///
+/// Call this after any event that may change list selection. Cached data is
+/// applied immediately; otherwise a single background request is scheduled.
 pub fn sync_detail_state(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     let displayed = app.displayed_prs();
     let safe_index = app.safe_selected_index(displayed.len());
@@ -78,6 +82,7 @@ pub fn sync_detail_state(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     }
 }
 
+/// Schedules unresolved-comment discovery for PRs not already requested.
 pub fn sync_comment_activity(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     let (Some(client), Some(project)) = (app.client.clone(), app.selected_project.clone()) else {
         return;
@@ -91,6 +96,7 @@ pub fn sync_comment_activity(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     );
 }
 
+/// Applies one keyboard event according to the active screen and input mode.
 pub fn handle_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<AppEvent>) {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         app.should_quit = true;
@@ -491,6 +497,7 @@ fn handle_filter_modal_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<Ap
     }
 }
 
+/// Saves filters asynchronously after initial config hydration.
 pub fn persist_filters(app: &App) {
     if !app.filters_hydrated {
         return;
@@ -501,6 +508,7 @@ pub fn persist_filters(app: &App) {
     });
 }
 
+/// Saves the current list layout asynchronously after config hydration.
 pub fn persist_list_layout(app: &App) {
     if !app.filters_hydrated {
         return;
@@ -511,8 +519,10 @@ pub fn persist_list_layout(app: &App) {
     });
 }
 
-/// Mirrors the TS app's `filters` effect: persist (skipping the very first
-/// hydration) and re-fetch the PR list under the new filters.
+/// Persists the current filters and reloads the PR list.
+///
+/// Persistence is skipped during initial hydration to avoid overwriting the
+/// stored filters before they have been applied.
 pub fn apply_filters_change(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     persist_filters(app);
     on_filters_changed(app, tx);
@@ -576,6 +586,8 @@ fn resolve_right_panel_point(
     let clamped_scroll = visible.clamped_scroll;
 
     let viewport_row = y - geometry.reserved_top as i64 - CONTENT_TOP_ROWS as i64;
+    // Initial clicks must land inside content. Drag updates use non-strict
+    // clamping so a selection can continue naturally beyond panel edges.
     if strict && (viewport_row < 0 || viewport_row >= content_height as i64) {
         return None;
     }
@@ -588,6 +600,7 @@ fn resolve_right_panel_point(
     })
 }
 
+/// Applies pointer input for selection, scrolling, focus, and divider resizing.
 pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEvent>) {
     if app.screen != AppScreen::PrList || app.filter_modal_open {
         return;
@@ -638,7 +651,7 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
         return;
     }
 
-    // action == Down from here on.
+    // Remaining branches handle button-down and synthetic wheel events.
     if button == Button::WheelUp || button == Button::WheelDown {
         if !within_main_row {
             return;
@@ -706,6 +719,7 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
     }
 }
 
+/// Reloads PR data using the current project, identity, and filters.
 pub fn on_filters_changed(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     if let (Some(client), Some(project)) = (app.client.clone(), app.selected_project.clone()) {
         app.prs_loading = true;
@@ -719,4 +733,3 @@ pub fn on_filters_changed(app: &mut App, tx: &UnboundedSender<AppEvent>) {
         ));
     }
 }
-

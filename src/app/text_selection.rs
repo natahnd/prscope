@@ -1,3 +1,6 @@
+//! Character-based selection and extraction for rendered detail text.
+
+/// Character coordinate in the full, unscrolled detail content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionPoint {
     /// Absolute index into the full (unscrolled) content lines array.
@@ -5,12 +8,14 @@ pub struct SelectionPoint {
     pub col: usize,
 }
 
+/// Drag selection preserving the original anchor and moving focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionRange {
     pub anchor: SelectionPoint,
     pub focus: SelectionPoint,
 }
 
+/// Selection reordered into a forward start and end range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NormalizedSelection {
     pub start_row: usize,
@@ -19,6 +24,7 @@ pub struct NormalizedSelection {
     pub end_col: usize,
 }
 
+/// Orders a drag selection regardless of drag direction.
 pub fn normalize_selection(range: SelectionRange) -> NormalizedSelection {
     let anchor_first = range.anchor.row < range.focus.row
         || (range.anchor.row == range.focus.row && range.anchor.col <= range.focus.col);

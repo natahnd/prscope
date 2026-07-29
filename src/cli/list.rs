@@ -1,3 +1,5 @@
+//! Execution of interactive and plain pull request listing modes.
+
 use anyhow::{anyhow, Result};
 
 use super::helpers::resolve_organization;
@@ -34,6 +36,7 @@ fn has_explicit_filter_flags(args: &ListArgs) -> bool {
         || args.mine
 }
 
+/// Runs either the interactive TUI or the non-interactive plain listing path.
 pub async fn run_list_command(options: ListArgs) -> Result<()> {
     if options.plain {
         let token = registry::resolve_provider_token(ProviderId::AzureDevops).await?;

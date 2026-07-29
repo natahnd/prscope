@@ -1,3 +1,5 @@
+//! Human-readable absolute and relative timestamp formatting.
+
 use chrono::{DateTime, Datelike, Utc};
 
 /// Parses an Azure DevOps ISO-8601 timestamp string. Falls back to "now" on
@@ -13,9 +15,10 @@ const MINUTES_IN_ALMOST_TWO_DAYS: i64 = 2520;
 const MINUTES_IN_MONTH: i64 = 43200;
 const MINUTES_IN_TWO_MONTHS: i64 = 86400;
 
-/// Re-implements date-fns' `formatDistanceToNow(date, { addSuffix })` bucket
-/// thresholds/wording (English locale) so comment timestamps and the plain
-/// CLI table read exactly like the TypeScript app's did.
+/// Formats a timestamp using stable, human-readable English time buckets.
+///
+/// The thresholds intentionally match the wording already exposed by the CLI,
+/// so output remains consistent across the TUI and plain table modes.
 pub fn format_distance_to_now(date: DateTime<Utc>, add_suffix: bool) -> String {
     let now = Utc::now();
     let seconds = (now - date).num_seconds().max(0);
@@ -79,8 +82,7 @@ fn month_difference(earlier: DateTime<Utc>, later: DateTime<Utc>) -> i64 {
     months.max(0)
 }
 
-/// Compact age format (`5d`, `3h`, `2mo`) used in the PR list rows — already
-/// hand-rolled in the TS app rather than date-fns, ported directly.
+/// Formats a compact age such as `5d`, `3h`, or `2mo` for PR list rows.
 pub fn format_compact_age(date: DateTime<Utc>) -> String {
     let seconds = (Utc::now() - date).num_seconds().max(0);
     if seconds < 60 {

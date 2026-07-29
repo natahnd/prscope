@@ -1,3 +1,5 @@
+//! Ratatui rendering entry points and screen-level layout composition.
+
 pub mod filter_modal;
 pub mod header;
 pub mod pr_list_panel;
@@ -15,11 +17,13 @@ use crate::api::types::AppScreen;
 
 use super::state::App;
 
+/// Renders the initial frame while config and provider state are loading.
 pub fn render_loading(f: &mut Frame) {
     let p = Paragraph::new("Loading…").style(Style::default().add_modifier(Modifier::DIM));
     f.render_widget(p, f.area());
 }
 
+/// Renders the active screen and any modal overlay.
 pub fn render(f: &mut Frame, app: &App) {
     if !app.bootstrapped {
         render_loading(f);

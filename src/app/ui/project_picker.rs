@@ -1,3 +1,5 @@
+//! Rendering for searchable Azure DevOps project selection.
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -6,6 +8,7 @@ use ratatui::Frame;
 
 use crate::app::state::App;
 
+/// Renders searchable projects with the last-used project highlighted.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let filtered = app.filtered_projects();
     let safe_index = if filtered.is_empty() {

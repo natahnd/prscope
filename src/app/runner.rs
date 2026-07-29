@@ -1,3 +1,5 @@
+//! Terminal lifecycle, application bootstrap, and asynchronous event loop.
+
 use std::io::stdout;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -45,6 +47,7 @@ async fn init_client(
     Ok((client, user.id, display_context, last_project))
 }
 
+/// Loads projects in a background task and sends one completion event.
 pub async fn load_projects(client: Arc<dyn ProviderClient>, tx: UnboundedSender<AppEvent>) {
     let config = load_config().await;
     let last_project = get_last_project(&config);
@@ -63,6 +66,7 @@ pub async fn load_projects(client: Arc<dyn ProviderClient>, tx: UnboundedSender<
     }
 }
 
+/// Loads repositories and pull requests concurrently for one project.
 pub async fn load_pull_requests(
     client: Arc<dyn ProviderClient>,
     project: String,
@@ -82,6 +86,7 @@ pub async fn load_pull_requests(
     }
 }
 
+/// Starts best-effort Azure DevOps organization discovery.
 pub fn spawn_ado_org_detect(tx: UnboundedSender<AppEvent>) {
     tokio::spawn(async move {
         let org = crate::providers::azure_devops::detect_org::detect_azure_devops_org().await;
@@ -128,9 +133,11 @@ async fn bootstrap(app: &mut App, tx: &UnboundedSender<AppEvent>) {
         on_filters_changed(app, tx);
     }
 
+    // Persistence becomes safe only after stored values have initialized state.
     app.filters_hydrated = true;
 }
 
+/// Runs the interactive application and restores terminal state on exit.
 pub async fn run_tui(initial_project: Option<String>, initial_filters: PullRequestFilters) -> Result<()> {
     terminal::enable_raw_mode()?;
     let mut out = stdout();
@@ -160,6 +167,8 @@ async fn run_app(
     initial_filters: PullRequestFilters,
 ) -> Result<()> {
     let mut app = App::new(initial_project, initial_filters);
+    // Background tasks never mutate App directly; they report completions
+    // through this channel for serialized handling in the main loop.
     let (tx, mut rx) = mpsc::unbounded_channel::<AppEvent>();
 
     terminal.draw(ui::render_loading)?;

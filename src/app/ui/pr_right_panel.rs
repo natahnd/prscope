@@ -1,3 +1,5 @@
+//! Rendering for pull request descriptions, comments, and text selection.
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -12,6 +14,7 @@ use crate::app::state::{App, CommentStatusFilter, PanelFocus, RightPanelMode};
 use crate::app::text_selection::{normalize_selection, row_highlight_range};
 use crate::app::update::current_right_panel_lines;
 
+/// Renders metadata, tabs, scroll state, and selectable detail content.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let focused = app.panel_focus == PanelFocus::Detail;
     let displayed = app.displayed_prs();
@@ -219,11 +222,11 @@ fn render_content_line(line: &ContentLine, highlight: Option<(usize, usize)>, co
     Line::from(spans_with_highlight(&spans, highlight, content_width))
 }
 
-/// Splits `spans` around the highlighted column range and overrides that
-/// segment's style with the selection colors, mirroring `highlightedText` in
-/// the original TS app. Full-row highlights get padded to `content_width` so
-/// short lines in the middle of a multi-line selection still read as a
-/// continuous highlighted block.
+/// Splits styled spans around a selected column range and applies highlight
+/// colors without discarding the original boundaries.
+///
+/// Full-row selections are padded to `content_width` so intermediate rows in a
+/// multi-line selection form a continuous visual block.
 fn spans_with_highlight(
     spans: &[(String, Style)],
     highlight: Option<(usize, usize)>,

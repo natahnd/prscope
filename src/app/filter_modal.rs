@@ -1,7 +1,10 @@
+//! Filter-modal state, navigation, and conversion to persisted PR filters.
+
 use crate::api::types::{
     AdoRepository, CommentActivityFilter, DraftFilter, PullRequestFilters, PullRequestStatus,
 };
 
+/// Pull request statuses selectable in the modal.
 pub const STATUS_OPTIONS: [PullRequestStatus; 4] = [
     PullRequestStatus::Active,
     PullRequestStatus::Completed,
@@ -9,17 +12,20 @@ pub const STATUS_OPTIONS: [PullRequestStatus; 4] = [
     PullRequestStatus::All,
 ];
 
+/// Draft visibility choices and their display labels.
 pub const DRAFT_OPTIONS: [(DraftFilter, &str); 3] = [
     (DraftFilter::All, "All PRs"),
     (DraftFilter::Hide, "Hide drafts"),
     (DraftFilter::Only, "Only drafts"),
 ];
 
+/// Comment-activity choices and their display labels.
 pub const COMMENT_OPTIONS: [(CommentActivityFilter, &str); 2] = [
     (CommentActivityFilter::All, "All PRs"),
     (CommentActivityFilter::Only, "PRs with active comments"),
 ];
 
+/// Keyboard navigation order for filter sections.
 pub const SECTIONS: [FilterSection; 5] = [
     FilterSection::Status,
     FilterSection::Repo,
@@ -28,6 +34,7 @@ pub const SECTIONS: [FilterSection; 5] = [
     FilterSection::Toggles,
 ];
 
+/// Focusable sections in the filter modal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterSection {
     Status,
@@ -37,6 +44,7 @@ pub enum FilterSection {
     Toggles,
 }
 
+/// Editable filter values and current modal focus.
 #[derive(Debug, Clone)]
 pub struct FilterModalState {
     pub status_index: usize,
@@ -49,6 +57,7 @@ pub struct FilterModalState {
     pub section: FilterSection,
 }
 
+/// Initializes modal state from active filters and available repositories.
 pub fn filter_modal_state_from_filters(
     filters: &PullRequestFilters,
     repositories: &[AdoRepository],
@@ -88,6 +97,7 @@ pub fn filter_modal_state_from_filters(
     }
 }
 
+/// Converts modal selections into filters ready for provider requests.
 pub fn modal_state_to_filters(
     state: &FilterModalState,
     repositories: &[AdoRepository],
@@ -119,6 +129,7 @@ pub fn modal_state_to_filters(
     }
 }
 
+/// Builds compact labels for active filters in the PR list header.
 pub fn filters_to_labels(filters: &PullRequestFilters) -> Vec<String> {
     let mut labels = vec![filters.status.to_string()];
     if let Some(repo) = &filters.repository_name {
@@ -149,16 +160,19 @@ pub fn filters_to_labels(filters: &PullRequestFilters) -> Vec<String> {
 }
 
 impl FilterModalState {
+    /// Moves the current choice one position left.
     pub fn move_left(&mut self) {
         let idx = SECTIONS.iter().position(|s| *s == self.section).unwrap_or(0);
         self.section = SECTIONS[idx.saturating_sub(1)];
     }
 
+    /// Moves the current choice one position right.
     pub fn move_right(&mut self) {
         let idx = SECTIONS.iter().position(|s| *s == self.section).unwrap_or(0);
         self.section = SECTIONS[(idx + 1).min(SECTIONS.len() - 1)];
     }
 
+    /// Moves focus to the next section or repository row.
     pub fn move_down(&mut self, repo_count: usize) {
         match self.section {
             FilterSection::Status => {
@@ -179,6 +193,7 @@ impl FilterModalState {
         }
     }
 
+    /// Moves focus to the previous section or repository row.
     pub fn move_up(&mut self) {
         match self.section {
             FilterSection::Status => self.status_index = self.status_index.saturating_sub(1),
@@ -189,6 +204,7 @@ impl FilterModalState {
         }
     }
 
+    /// Toggles the focused boolean filter, if applicable.
     pub fn toggle_space(&mut self) {
         if self.section == FilterSection::Toggles {
             if self.toggle_index == 0 {

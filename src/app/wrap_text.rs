@@ -1,3 +1,5 @@
+//! Plain-text wrapping and lightweight HTML removal helpers.
+
 /// Greedily word-wraps text to a fixed column width, preserving explicit
 /// newlines (paragraph breaks) as blank lines. Used as the defensive
 /// fallback if markdown rendering ever panics.
@@ -48,6 +50,7 @@ fn split_at_chars(s: &str, n: usize) -> (&str, &str) {
     }
 }
 
+/// Removes simple HTML tags while preserving their text content.
 pub fn strip_html(content: &str) -> String {
     let mut out = String::new();
     let mut in_tag = false;

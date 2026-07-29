@@ -1,9 +1,12 @@
+//! Execution of configuration subcommands.
+
 use anyhow::Result;
 
 use super::helpers::{set_config, show_config};
 use super::ConfigCommand;
 use crate::config::store::ConfigValuesPatch;
 
+/// Executes a parsed configuration subcommand.
 pub async fn run_config_command(action: ConfigCommand) -> Result<()> {
     match action {
         ConfigCommand::Show => {

@@ -1,3 +1,5 @@
+//! Provider metadata, authentication dispatch, and client construction.
+
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
@@ -20,15 +22,18 @@ const PROVIDERS: [ProviderInfo; 2] = [
     },
 ];
 
+/// Returns providers in their display order.
 pub fn list_providers() -> Vec<ProviderInfo> {
     PROVIDERS.to_vec()
 }
 
+/// Looks up metadata for a provider identifier.
 #[allow(dead_code)]
 pub fn get_provider(id: ProviderId) -> Option<ProviderInfo> {
     PROVIDERS.iter().copied().find(|p| p.id == id)
 }
 
+/// Resolves credentials using the selected provider's authentication strategy.
 pub async fn resolve_provider_token(id: ProviderId) -> Result<String> {
     match id {
         ProviderId::AzureDevops => azure_devops::auth::resolve_azure_devops_token().await,
@@ -36,7 +41,7 @@ pub async fn resolve_provider_token(id: ProviderId) -> Result<String> {
     }
 }
 
-/// Builds a client from the persisted app config (used on app bootstrap).
+/// Builds a provider client from persisted application config.
 pub fn create_client_from_config(
     id: ProviderId,
     token: String,
@@ -52,8 +57,7 @@ pub fn create_client_from_config(
     }
 }
 
-/// Builds an Azure DevOps client directly from a freshly-entered organization
-/// name (used by the setup flow's test-connection step, before it's saved).
+/// Builds an Azure DevOps client before setup values have been persisted.
 pub fn create_azure_devops_client_direct(
     token: String,
     organization: String,

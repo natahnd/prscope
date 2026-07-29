@@ -1,3 +1,5 @@
+//! Rendering for grouped pull request rows, filters, and inline search.
+
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -11,6 +13,7 @@ use crate::app::pr_list_rows::{get_visible_pr_rows, VisualRow};
 use crate::app::state::{App, PanelFocus};
 use crate::humanize::{format_compact_age, parse_date};
 
+/// Renders the filtered and grouped pull request viewport.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let focused = app.panel_focus == PanelFocus::List;
     let displayed = app.displayed_prs();
