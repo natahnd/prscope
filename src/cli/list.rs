@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Result};
 
-use super::helpers::resolve_organization;
+use super::helpers::{resolve_cli_provider, resolve_organization};
 use super::plain_output;
 use super::ListArgs;
 use crate::api::types::ProviderId;
@@ -57,18 +57,28 @@ fn has_explicit_filter_flags(args: &ListArgs) -> bool {
 /// returns an error.
 pub async fn run_list_command(options: ListArgs) -> Result<()> {
     if options.plain {
-        let token = registry::resolve_provider_token(ProviderId::AzureDevops).await?;
-        let organization = resolve_organization(options.org.clone()).await?;
-        let client =
-            registry::create_azure_devops_client_direct(token, organization)?;
+        let config = load_config().await;
+        let provider = resolve_cli_provider(options.provider.as_deref(), config.active_provider)?;
+
+        let client = match provider {
+            ProviderId::AzureDevops => {
+                let token = registry::resolve_provider_token(ProviderId::AzureDevops).await?;
+                let organization = resolve_organization(options.org.clone()).await?;
+                registry::create_azure_devops_client_direct(token, organization)?
+            }
+            ProviderId::Github => {
+                let token = registry::resolve_provider_token(ProviderId::Github).await?;
+                registry::create_github_client_direct(token)?
+            }
+        };
+
         let user = client.get_current_user().await?;
         let filter_opts = to_filter_options(&options);
         let filters = build_filters(&filter_opts, Some(&user.id))?;
 
-        let project = options
-            .project
-            .clone()
-            .ok_or_else(|| anyhow!("--project is required with --plain mode."))?;
+        let project = options.project.clone().ok_or_else(|| {
+            anyhow!("--project is required with --plain mode (Azure DevOps project or GitHub owner).")
+        })?;
 
         let prs = client
             .list_pull_requests(&project, &filters, Some(&user.id))

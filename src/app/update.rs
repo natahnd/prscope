@@ -21,7 +21,7 @@ use crate::app::text_selection::{
 };
 use crate::providers::registry;
 
-use super::runner::{load_projects, load_pull_requests, spawn_ado_org_detect};
+use super::runner::{load_projects, load_pull_requests, spawn_ado_org_detect, spawn_github_auth_detect};
 
 /// Builds the complete content currently exposed by the detail panel.
 ///
@@ -190,13 +190,18 @@ fn handle_provider_select_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender
         KeyCode::Enter => {
             let safe = app.provider_picker_index.min(providers.len() - 1);
             let provider = providers[safe];
-            if provider.enabled && provider.id == ProviderId::AzureDevops {
+            if provider.enabled {
                 app.screen = AppScreen::ProviderSetup;
+                app.setup_provider = Some(provider.id);
                 app.setup_error = None;
                 app.setup_detecting = true;
                 app.setup_value.clear();
                 app.setup_detected_from_az = false;
-                spawn_ado_org_detect(tx.clone());
+                app.setup_token_detected = false;
+                match provider.id {
+                    ProviderId::AzureDevops => spawn_ado_org_detect(tx.clone()),
+                    ProviderId::Github => spawn_github_auth_detect(tx.clone()),
+                }
             }
         }
         KeyCode::Char('q') => app.should_quit = true,
@@ -216,44 +221,10 @@ fn handle_provider_setup_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<
     }
 
     match key.code {
-        KeyCode::Enter => {
-            let org = app.setup_value.trim().to_string();
-            if org.is_empty() {
-                app.setup_error = Some("Organization name cannot be empty.".to_string());
-                return;
-            }
-            app.setup_loading = true;
-            app.setup_error = None;
-            let tx = tx.clone();
-            tokio::spawn(async move {
-                let result = async {
-                    let token = registry::resolve_provider_token(ProviderId::AzureDevops).await?;
-                    let client = registry::create_azure_devops_client_direct(token, org.clone())?;
-                    client.get_current_user().await?;
-                    client.list_projects().await?;
-                    crate::config::store::save_provider_config(
-                        ProviderId::AzureDevops,
-                        Some(org.clone()),
-                    )
-                    .await?;
-                    let user = client.get_current_user().await?;
-                    anyhow::Ok((client, user.id, org))
-                }
-                .await;
-                match result {
-                    Ok((client, user_id, organization)) => {
-                        let _ = tx.send(AppEvent::AdoSubmitSucceeded {
-                            client,
-                            user_id,
-                            organization,
-                        });
-                    }
-                    Err(err) => {
-                        let _ = tx.send(AppEvent::AdoSubmitFailed(err.to_string()));
-                    }
-                }
-            });
-        }
+        KeyCode::Enter => match app.setup_provider {
+            Some(ProviderId::Github) => submit_github_setup(app, tx),
+            _ => submit_azure_devops_setup(app, tx),
+        },
         KeyCode::Char('q') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.should_quit = true;
         }
@@ -266,6 +237,77 @@ fn handle_provider_setup_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<
             }
         }
     }
+}
+
+fn submit_azure_devops_setup(app: &mut App, tx: &UnboundedSender<AppEvent>) {
+    let org = app.setup_value.trim().to_string();
+    if org.is_empty() {
+        app.setup_error = Some("Organization name cannot be empty.".to_string());
+        return;
+    }
+    app.setup_loading = true;
+    app.setup_error = None;
+    let tx = tx.clone();
+    tokio::spawn(async move {
+        let result = async {
+            let token = registry::resolve_provider_token(ProviderId::AzureDevops).await?;
+            let client = registry::create_azure_devops_client_direct(token, org.clone())?;
+            client.get_current_user().await?;
+            client.list_projects().await?;
+            crate::config::store::save_provider_config(ProviderId::AzureDevops, Some(org.clone())).await?;
+            let user = client.get_current_user().await?;
+            anyhow::Ok((client, user.id, org))
+        }
+        .await;
+        match result {
+            Ok((client, user_id, organization)) => {
+                let _ = tx.send(AppEvent::AdoSubmitSucceeded {
+                    client,
+                    user_id,
+                    organization,
+                });
+            }
+            Err(err) => {
+                let _ = tx.send(AppEvent::AdoSubmitFailed(err.to_string()));
+            }
+        }
+    });
+}
+
+/// Submits the GitHub setup screen: a typed PAT always wins (so a user can
+/// override a bad auto-detected credential), otherwise re-resolves via the
+/// same `gh`/env/config chain used everywhere else.
+fn submit_github_setup(app: &mut App, tx: &UnboundedSender<AppEvent>) {
+    let typed = app.setup_value.trim().to_string();
+    if !app.setup_token_detected && typed.is_empty() {
+        app.setup_error = Some("Personal access token required.".to_string());
+        return;
+    }
+    app.setup_loading = true;
+    app.setup_error = None;
+    let tx = tx.clone();
+    tokio::spawn(async move {
+        let result = async {
+            let token = if !typed.is_empty() {
+                typed
+            } else {
+                registry::resolve_provider_token(ProviderId::Github).await?
+            };
+            let client = registry::create_github_client_direct(token)?;
+            let user = client.get_current_user().await?;
+            crate::config::store::save_provider_config(ProviderId::Github, None).await?;
+            anyhow::Ok((client, user.id))
+        }
+        .await;
+        match result {
+            Ok((client, user_id)) => {
+                let _ = tx.send(AppEvent::GithubSubmitSucceeded { client, user_id });
+            }
+            Err(err) => {
+                let _ = tx.send(AppEvent::GithubSubmitFailed(err.to_string()));
+            }
+        }
+    });
 }
 
 fn handle_project_select_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<AppEvent>) {

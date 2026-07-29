@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Result};
 
-use crate::api::types::get_azure_devops_config;
+use crate::api::types::{get_azure_devops_config, ProviderId};
 use crate::config::store::{get_config_path, load_config, set_config_values, ConfigValuesPatch};
 
 /// Prints the config path and deserialized config document.
@@ -73,4 +73,33 @@ pub async fn resolve_organization(flag_org: Option<String>) -> Result<String> {
     Err(anyhow!(
         "Organization required. Pass --org or configure Azure DevOps via the TUI."
     ))
+}
+
+/// Resolves which provider a plain-mode CLI invocation should use.
+///
+/// # Arguments
+///
+/// * `flag` - The `--provider` value passed on the command line, if any.
+/// * `configured` - The persisted `activeProvider`, if setup has already run.
+///
+/// # Returns
+///
+/// The explicit `--provider` value if set (`"azure-devops"` or `"github"`);
+/// otherwise `configured`.
+///
+/// # Errors
+///
+/// Returns `Err` if `flag` doesn't match a known provider, or if `flag` is
+/// `None` and no provider has been configured yet.
+pub fn resolve_cli_provider(flag: Option<&str>, configured: Option<ProviderId>) -> Result<ProviderId> {
+    if let Some(value) = flag {
+        return match value {
+            "azure-devops" => Ok(ProviderId::AzureDevops),
+            "github" => Ok(ProviderId::Github),
+            other => Err(anyhow!("Invalid provider \"{other}\". Use azure-devops or github.")),
+        };
+    }
+    configured.ok_or_else(|| {
+        anyhow!("No provider configured. Pass --provider azure-devops|github, or run the interactive setup once.")
+    })
 }

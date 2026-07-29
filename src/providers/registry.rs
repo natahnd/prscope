@@ -2,11 +2,12 @@
 
 use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use crate::api::types::{get_azure_devops_config, AppConfigV2, ProviderId};
 
 use super::azure_devops;
+use super::github;
 use super::{ProviderClient, ProviderInfo};
 
 const PROVIDERS: [ProviderInfo; 2] = [
@@ -17,8 +18,8 @@ const PROVIDERS: [ProviderInfo; 2] = [
     },
     ProviderInfo {
         id: ProviderId::Github,
-        name: "GitHub (coming soon)",
-        enabled: false,
+        name: "GitHub",
+        enabled: true,
     },
 ];
 
@@ -60,13 +61,14 @@ pub fn get_provider(id: ProviderId) -> Option<ProviderInfo> {
 ///
 /// # Errors
 ///
-/// Returns `Err` if `id` is `ProviderId::Github` (not yet implemented), or
-/// if Azure DevOps credential resolution fails (no Azure CLI session and no
-/// `AZURE_DEVOPS_PAT`/saved PAT).
+/// Returns `Err` if Azure DevOps credential resolution fails (no Azure CLI
+/// session and no `AZURE_DEVOPS_PAT`/saved PAT), or if GitHub credential
+/// resolution fails (no `gh` CLI session, no `GITHUB_TOKEN`/`GH_TOKEN`, and
+/// no saved PAT).
 pub async fn resolve_provider_token(id: ProviderId) -> Result<String> {
     match id {
         ProviderId::AzureDevops => azure_devops::auth::resolve_azure_devops_token().await,
-        ProviderId::Github => bail!("GitHub provider is not yet available."),
+        ProviderId::Github => github::auth::resolve_github_token().await,
     }
 }
 
@@ -85,9 +87,8 @@ pub async fn resolve_provider_token(id: ProviderId) -> Result<String> {
 ///
 /// # Errors
 ///
-/// Returns `Err` if `id` is `ProviderId::Github` (not yet implemented), or
-/// if building the Azure DevOps client fails (e.g. no organization
-/// configured).
+/// Returns `Err` if building the Azure DevOps client fails (e.g. no
+/// organization configured).
 pub fn create_client_from_config(
     id: ProviderId,
     token: String,
@@ -99,7 +100,7 @@ pub fn create_client_from_config(
             let client = azure_devops::client::create_azure_devops_client(token, ado.organization)?;
             Ok(Arc::new(client))
         }
-        ProviderId::Github => bail!("GitHub provider is not yet available."),
+        ProviderId::Github => Ok(Arc::new(github::client::GitHubClient::new(token))),
     }
 }
 
@@ -125,4 +126,13 @@ pub fn create_azure_devops_client_direct(
 ) -> Result<Arc<dyn ProviderClient>> {
     let client = azure_devops::client::create_azure_devops_client(token, Some(organization))?;
     Ok(Arc::new(client))
+}
+
+/// Builds a GitHub client from a resolved token.
+///
+/// Unlike Azure DevOps, GitHub needs no upfront organization — the owner
+/// (personal account or org) is chosen dynamically on the project select
+/// screen.
+pub fn create_github_client_direct(token: String) -> Result<Arc<dyn ProviderClient>> {
+    Ok(Arc::new(github::client::GitHubClient::new(token)))
 }

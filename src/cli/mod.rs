@@ -12,7 +12,7 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "pr-reviews",
     version = "0.1.0",
-    about = "Azure DevOps pull request review TUI"
+    about = "Pull request review TUI for Azure DevOps and GitHub"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -56,10 +56,15 @@ pub enum ConfigCommand {
 /// Arguments shared by the default invocation and the explicit `list` command.
 #[derive(Args, Clone, Default, Debug)]
 pub struct ListArgs {
+    /// Provider to use with --plain ("azure-devops" or "github"); otherwise
+    /// falls back to the configured active provider
+    #[arg(long)]
+    pub provider: Option<String>,
     /// Azure DevOps organization
     #[arg(short = 'o', long)]
     pub org: Option<String>,
-    /// Azure DevOps project (skips picker)
+    /// Azure DevOps project, or GitHub owner (org or username) — skips the
+    /// picker
     #[arg(short = 'p', long)]
     pub project: Option<String>,
     /// PR status filter
