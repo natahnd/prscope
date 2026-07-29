@@ -28,6 +28,22 @@ const CONCURRENCY: usize = 6;
 ///
 /// `requested` lives for the full application run, so repeated refreshes or
 /// project switches do not enqueue duplicate work for an already-seen PR key.
+///
+/// # Arguments
+///
+/// * `client` - Provider client used to fetch each PR's comment threads.
+/// * `project` - Project the pull requests belong to.
+/// * `pull_requests` - Candidate PRs to check; entries already present in
+///   `requested` are skipped.
+/// * `requested` - Set of PR keys already fetched or in flight. Updated in
+///   place with every PR key newly scheduled by this call.
+/// * `sender` - Channel used to report each PR's `CommentActivity` result
+///   back to the main event loop as background tasks complete.
+///
+/// # Returns
+///
+/// This function does not return a value; results arrive asynchronously via
+/// `AppEvent::CommentActivityLoaded` sent on `sender`.
 pub fn spawn_missing_comment_activity(
     client: Arc<dyn ProviderClient>,
     project: String,

@@ -12,6 +12,19 @@ use crate::app::filter_modal::{
 use crate::app::state::App;
 
 /// Renders the modal over the PR list panel.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region available for the modal, typically the PR list/detail
+///   row; the modal sizes itself to fit its content within it.
+/// * `app` - Application state; the modal is skipped entirely if
+///   `app.filter_modal` is `None`.
+///
+/// # Returns
+///
+/// This function does not return a value; it draws nothing and returns
+/// immediately if no filter modal state is present.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let Some(state) = app.filter_modal.as_ref() else {
         return;

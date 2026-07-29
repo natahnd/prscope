@@ -15,6 +15,19 @@ use crate::app::text_selection::{normalize_selection, row_highlight_range};
 use crate::app::update::current_right_panel_lines;
 
 /// Renders metadata, tabs, scroll state, and selectable detail content.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region to render the detail panel (border, title/meta lines,
+///   tab line, and scrollable content) into.
+/// * `app` - Application state used for the selected PR, detail content,
+///   active mode/filter, scroll position, and any active text selection.
+///
+/// # Returns
+///
+/// This function does not return a value; it renders a placeholder message
+/// instead of detail content if no PR is currently selected.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let focused = app.panel_focus == PanelFocus::Detail;
     let displayed = app.displayed_prs();

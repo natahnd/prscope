@@ -37,6 +37,24 @@ fn has_explicit_filter_flags(args: &ListArgs) -> bool {
 }
 
 /// Runs either the interactive TUI or the non-interactive plain listing path.
+///
+/// # Arguments
+///
+/// * `options` - Parsed CLI arguments from the default invocation or the
+///   explicit `list` subcommand.
+///
+/// # Returns
+///
+/// `Ok(())` after plain mode finishes printing, or after the interactive TUI
+/// exits normally.
+///
+/// # Errors
+///
+/// In plain mode (`options.plain`), returns `Err` if authentication fails,
+/// the organization can't be resolved, `--project` is missing, the filter
+/// flags are invalid, or the pull request fetch fails. In interactive mode,
+/// returns `Err` if filter flags are invalid or if [`crate::app::run_tui`]
+/// returns an error.
 pub async fn run_list_command(options: ListArgs) -> Result<()> {
     if options.plain {
         let token = registry::resolve_provider_token(ProviderId::AzureDevops).await?;

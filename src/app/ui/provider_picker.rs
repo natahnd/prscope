@@ -25,6 +25,13 @@ fn title_block(title: &str) -> Paragraph<'static> {
 }
 
 /// Renders enabled and planned providers during first-run setup.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region to render the title and provider list into.
+/// * `app` - Application state used for the current provider selection
+///   index.
 pub fn render_picker(f: &mut Frame, area: Rect, app: &App) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -62,6 +69,13 @@ pub fn render_picker(f: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Renders Azure DevOps organization detection and entry state.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region to render the title and setup form into.
+/// * `app` - Application state used for detection/loading/error state and
+///   the organization name typed so far.
 pub fn render_setup(f: &mut Frame, area: Rect, app: &App) {
     let rows = Layout::default()
         .direction(Direction::Vertical)

@@ -7,6 +7,15 @@ use crate::api::types::NormalizedPullRequest;
 use crate::humanize::{format_distance_to_now, parse_date};
 
 /// Prints pull requests as a width-aware terminal table.
+///
+/// # Arguments
+///
+/// * `prs` - Pull requests to print, in the order given.
+///
+/// # Returns
+///
+/// This function does not return a value; it prints
+/// `"No pull requests found."` instead of a table if `prs` is empty.
 pub fn print_plain_table(prs: &[NormalizedPullRequest]) {
     if prs.is_empty() {
         println!("No pull requests found.");
@@ -75,6 +84,20 @@ pub fn print_plain_table(prs: &[NormalizedPullRequest]) {
 }
 
 /// Serializes pull requests as pretty-printed JSON.
+///
+/// # Arguments
+///
+/// * `prs` - Pull requests to serialize, in the order given.
+///
+/// # Returns
+///
+/// `Ok(())` once the JSON has been printed to stdout.
+///
+/// # Errors
+///
+/// Returns `Err` if `prs` fails to serialize to JSON (not expected in
+/// practice, since `NormalizedPullRequest` derives `Serialize` with no
+/// fallible custom logic).
 pub fn print_plain_json(prs: &[NormalizedPullRequest]) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(prs)?);
     Ok(())
@@ -140,6 +163,14 @@ fn pad(value: &str, width: usize) -> String {
 }
 
 /// Prints a CLI error using a red ANSI foreground.
+///
+/// # Arguments
+///
+/// * `message` - The error text to print, prefixed with `"Error: "`.
+///
+/// # Returns
+///
+/// This function does not return a value; it always writes to stderr.
 pub fn print_error(message: &str) {
     eprintln!("\x1b[31mError: {message}\x1b[0m");
 }

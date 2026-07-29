@@ -17,6 +17,21 @@ const WSL_POWERSHELL_PATHS: &[&str] = &[
 /// On WSL, invokes Windows PowerShell by its mounted path with an encoded
 /// command. This avoids depending on `powershell.exe` being present on the
 /// Linux `PATH` or on environment variables crossing the WSL boundary.
+///
+/// # Arguments
+///
+/// * `url` - The URL to open (typically a pull request's web URL).
+///
+/// # Returns
+///
+/// `Ok(())` once a browser-opening command has been successfully launched.
+///
+/// # Errors
+///
+/// On WSL, a failed PowerShell attempt is not returned directly: this
+/// function falls through to `open::that` instead. Returns `Err` only if
+/// that final `open::that(url)` call fails to locate or launch a handler for
+/// the URL.
 pub fn open_url(url: &str) -> io::Result<()> {
     if is_wsl() {
         for ps in WSL_POWERSHELL_PATHS {
@@ -62,6 +77,15 @@ fn open_via_powershell(powershell: &str, url: &str) -> io::Result<()> {
 
 /// Encodes `Start "<url>"` as UTF-16LE Base64 for PowerShell's
 /// `-EncodedCommand` argument.
+///
+/// # Arguments
+///
+/// * `url` - The URL to embed in the `Start` command.
+///
+/// # Returns
+///
+/// The Base64-encoded, UTF-16LE representation of `Start "<url>"`, ready to
+/// pass as `-EncodedCommand`.
 fn encode_powershell_start_command(url: &str) -> String {
     let command = format!("Start \"{url}\"");
     let bytes: Vec<u8> = command.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();

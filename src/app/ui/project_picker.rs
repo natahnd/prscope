@@ -9,6 +9,14 @@ use ratatui::Frame;
 use crate::app::state::App;
 
 /// Renders searchable projects with the last-used project highlighted.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region to render the title, search box, project list, and
+///   keybinding hint into.
+/// * `app` - Application state used for the filtered project list,
+///   selection, loading state, and any load error.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let filtered = app.filtered_projects();
     let safe_index = if filtered.is_empty() {

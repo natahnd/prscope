@@ -55,6 +55,11 @@ impl ContentLine {
     }
 
     /// Concatenates styled spans into clipboard-safe text.
+    ///
+    /// # Returns
+    ///
+    /// This line's text with all style information stripped, matching what
+    /// `y` copies to the clipboard for a whole-panel copy.
     pub fn plain_text(&self) -> String {
         self.spans.iter().map(|(t, _)| t.as_str()).collect()
     }
@@ -73,6 +78,15 @@ pub const CHROME_ROWS: usize = 6;
 pub const CONTENT_TOP_ROWS: usize = CHROME_ROWS - 1;
 
 /// Returns usable text width after borders and horizontal padding.
+///
+/// # Arguments
+///
+/// * `panel_width` - Full panel width in terminal columns, including borders.
+///
+/// # Returns
+///
+/// `panel_width - 4`, floored at `10` so content never wraps to an
+/// unusably narrow width on a very small panel.
 pub fn right_panel_content_width(panel_width: u16) -> usize {
     (panel_width as i64 - 4).max(10) as usize
 }
@@ -87,6 +101,19 @@ pub struct BuildRightPanelLinesArgs<'a> {
 }
 
 /// Builds the full, unscrolled content for the active detail-panel mode.
+///
+/// # Arguments
+///
+/// * `args` - The selected PR (if any), its detail-load state, the active
+///   panel mode (Description/Comments), the comment status filter, and the
+///   content width to wrap Markdown to.
+///
+/// # Returns
+///
+/// The complete ordered `ContentLine`s for the active mode: a single
+/// loading/error/empty-state line if applicable, otherwise the rendered
+/// description or filtered comment threads. Returns an empty `Vec` if no PR
+/// is selected (`args.pull_request` is `None`).
 pub fn build_right_panel_lines(args: BuildRightPanelLinesArgs<'_>) -> Vec<ContentLine> {
     let BuildRightPanelLinesArgs {
         pull_request,
@@ -152,6 +179,17 @@ pub fn build_right_panel_lines(args: BuildRightPanelLinesArgs<'_>) -> Vec<Conten
 
 /// Number of comment "sections" (the General bucket plus one per file
 /// thread) under the given filter — used for the `Comments (N)` tab label.
+///
+/// # Arguments
+///
+/// * `threads` - Full set of comment threads for the selected PR.
+/// * `status_filter` - Which threads count: all, active-only, or
+///   resolved-only.
+///
+/// # Returns
+///
+/// The number of sections [`build_right_panel_lines`] would render for
+/// `threads` under `status_filter`: `0` if none match.
 pub fn count_comment_sections(threads: &[PrThread], status_filter: CommentStatusFilter) -> usize {
     build_sections(threads, status_filter).len()
 }
@@ -272,6 +310,19 @@ pub struct VisibleRightPanelLines<'a> {
 }
 
 /// Clamps a requested scroll offset and returns the visible line slice.
+///
+/// # Arguments
+///
+/// * `lines` - Full, unscrolled content for the active panel mode.
+/// * `scroll_offset` - Requested scroll position, in lines from the top.
+/// * `content_height` - Number of lines the viewport can show at once.
+///
+/// # Returns
+///
+/// A `VisibleRightPanelLines` whose `visible` slice is at most
+/// `content_height` lines long, whose `clamped_scroll` is `scroll_offset`
+/// capped so the viewport never scrolls past the last line, and whose
+/// `max_scroll` is the largest valid scroll offset for `lines`.
 pub fn get_visible_right_panel_lines(
     lines: &[ContentLine],
     scroll_offset: usize,
@@ -288,6 +339,18 @@ pub fn get_visible_right_panel_lines(
 }
 
 /// Returns the base style for a semantic content line.
+///
+/// # Arguments
+///
+/// * `kind` - The line's semantic role (header, meta, body, etc).
+/// * `accent` - Optional accent color for `Header` lines (e.g. green for a
+///   resolved thread); ignored for other kinds.
+///
+/// # Returns
+///
+/// The `Style` to render the line with: dimmed for `Empty`/`Meta`, bold with
+/// `accent` (or magenta) for `Header`, and unstyled for `Blank`/`Body`/
+/// `Markdown`.
 pub fn line_style_for_kind(kind: LineKind, accent: Option<Color>) -> Style {
     match kind {
         LineKind::Empty => Style::default().add_modifier(Modifier::DIM),

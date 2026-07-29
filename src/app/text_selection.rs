@@ -25,6 +25,16 @@ pub struct NormalizedSelection {
 }
 
 /// Orders a drag selection regardless of drag direction.
+///
+/// # Arguments
+///
+/// * `range` - The raw anchor/focus pair from an in-progress or completed
+///   drag; `focus` may be before or after `anchor`.
+///
+/// # Returns
+///
+/// A `NormalizedSelection` whose `start_*` fields are always at or before
+/// `end_*`, regardless of which direction the user dragged.
 pub fn normalize_selection(range: SelectionRange) -> NormalizedSelection {
     let anchor_first = range.anchor.row < range.focus.row
         || (range.anchor.row == range.focus.row && range.anchor.col <= range.focus.col);
@@ -45,6 +55,18 @@ pub fn normalize_selection(range: SelectionRange) -> NormalizedSelection {
 /// row isn't part of the selection. Full-width (`usize::MAX`) for rows
 /// strictly between the selection's start/end rows, matching how normal
 /// multi-line text selection extends across whole intermediate lines.
+///
+/// # Arguments
+///
+/// * `row_index` - Index of the content row being rendered.
+/// * `selection` - Current normalized selection, if any.
+///
+/// # Returns
+///
+/// `None` if `selection` is `None` or `row_index` falls outside its
+/// start/end rows. Otherwise `Some((start_col, end_col))`: `end_col` is
+/// `usize::MAX` for any row strictly between the selection's start and end
+/// rows, meaning "highlight to the end of the line."
 pub fn row_highlight_range(
     row_index: usize,
     selection: Option<&NormalizedSelection>,
@@ -73,6 +95,17 @@ fn trim_trailing_whitespace(line: &str) -> String {
 /// Slices selected text out of plain-text content lines (char-indexed, so
 /// multi-byte characters are handled correctly), trimming trailing padding
 /// per row.
+///
+/// # Arguments
+///
+/// * `lines` - Full plain-text content the selection was made against.
+/// * `selection` - Normalized start/end row and column of the selection.
+///
+/// # Returns
+///
+/// The selected text, joined with `\n` and with trailing whitespace trimmed
+/// from each row. Rows referenced by `selection` that don't exist in `lines`
+/// are skipped; out-of-range columns are clamped to the row's length.
 pub fn extract_selected_text(lines: &[String], selection: &NormalizedSelection) -> String {
     let mut out: Vec<String> = Vec::new();
     for row in selection.start_row..=selection.end_row {

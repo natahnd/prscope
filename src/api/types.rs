@@ -323,6 +323,11 @@ pub enum PrListLayout {
 
 impl PrListLayout {
     /// Advances to the next layout in the user-facing cycle.
+    ///
+    /// # Returns
+    ///
+    /// The `PrListLayout` that follows `self`: repos → author → age↓ → age↑,
+    /// wrapping back to repos.
     pub fn next(self) -> Self {
         match self {
             PrListLayout::GroupByRepo => PrListLayout::GroupByAuthor,
@@ -333,6 +338,11 @@ impl PrListLayout {
     }
 
     /// Returns the compact label displayed in the list panel.
+    ///
+    /// # Returns
+    ///
+    /// A short static string identifying `self`: `"repos"`, `"author"`,
+    /// `"age↓"`, or `"age↑"`.
     pub fn label(self) -> &'static str {
         match self {
             PrListLayout::GroupByRepo => "repos",
@@ -343,6 +353,11 @@ impl PrListLayout {
     }
 
     /// Returns whether this layout inserts group headers between PR rows.
+    ///
+    /// # Returns
+    ///
+    /// `true` for `GroupByRepo`/`GroupByAuthor`; `false` for the two
+    /// `SortByAge*` layouts, which render as a flat list.
     pub fn groups(self) -> bool {
         !matches!(self, PrListLayout::SortByAgeDesc | PrListLayout::SortByAgeAsc)
     }
@@ -508,7 +523,18 @@ pub enum AppScreen {
     PrList,
 }
 
-/// Returns whether the active provider has enough persisted data to initialize.
+/// Checks whether the active provider has enough persisted data to skip setup.
+///
+/// # Arguments
+///
+/// * `config` - The loaded application configuration to inspect.
+///
+/// # Returns
+///
+/// `true` if `config.active_provider` is set and that provider's section has
+/// the minimum data needed to build a client (for Azure DevOps, an
+/// organization name). `false` if no provider is active or its section is
+/// missing that data, meaning the app should show the setup flow.
 pub fn is_configured_provider(config: &AppConfigV2) -> bool {
     let Some(active) = config.active_provider else {
         return false;
@@ -524,7 +550,16 @@ pub fn is_configured_provider(config: &AppConfigV2) -> bool {
     }
 }
 
-/// Returns Azure DevOps settings, using defaults when no section exists yet.
+/// Reads the persisted Azure DevOps settings from the application config.
+///
+/// # Arguments
+///
+/// * `config` - The loaded application configuration to read from.
+///
+/// # Returns
+///
+/// The stored `AzureDevOpsProviderConfig`, or `AzureDevOpsProviderConfig::default()`
+/// if no Azure DevOps section has been persisted yet (e.g. before first setup).
 pub fn get_azure_devops_config(config: &AppConfigV2) -> AzureDevOpsProviderConfig {
     config.providers.azure_devops.clone().unwrap_or_default()
 }

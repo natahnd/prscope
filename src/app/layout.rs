@@ -38,6 +38,19 @@ pub struct LayoutOptions {
 /// hit-test mouse clicks — kept in one place so the two can never drift out
 /// of sync. The search box lives inside the PR list panel's own header, not
 /// here, so it doesn't affect this geometry.
+///
+/// # Arguments
+///
+/// * `columns` - Current terminal width in columns.
+/// * `rows` - Current terminal height in rows.
+/// * `options` - Whether an error line is showing and the user's chosen
+///   left-panel width ratio.
+///
+/// # Returns
+///
+/// The resolved `LayoutGeometry`. Panel height and width are each floored at
+/// [`MIN_PANEL_HEIGHT`]/[`MIN_PANEL_WIDTH`], so this never panics or
+/// produces a negative/zero-sized panel even on a very small terminal.
 pub fn compute_layout_geometry(columns: u16, rows: u16, options: LayoutOptions) -> LayoutGeometry {
     let reserved_top = HEADER_HEIGHT + if options.has_error { ERROR_LINE_HEIGHT } else { 0 };
     let panel_height = (rows as i32 - reserved_top as i32 - STATUS_BAR_HEIGHT as i32)

@@ -15,6 +15,17 @@ const AZURE_DEVOPS_RESOURCE: &str = "499b84ac-1321-427f-aa17-267ca6975798";
 /// Azure CLI is preferred, followed by `AZURE_DEVOPS_PAT`, then a PAT in the
 /// application config. Azure CLI lookup is capped at 15 seconds so a missing or
 /// unhealthy CLI cannot stall startup indefinitely.
+///
+/// # Returns
+///
+/// A usable access token or PAT string, from whichever source succeeds
+/// first.
+///
+/// # Errors
+///
+/// Returns `Err` if the Azure CLI lookup fails or times out, no
+/// `AZURE_DEVOPS_PAT` environment variable is set (or it's empty), and no
+/// PAT is saved in the application config.
 pub async fn resolve_azure_devops_token() -> Result<String> {
     if let Some(token) = get_token_from_az_cli().await {
         return Ok(token);

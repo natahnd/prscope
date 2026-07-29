@@ -18,6 +18,14 @@ pub enum VisualRow {
 pub const LIST_CHROME_ROWS: usize = 3;
 
 /// Returns non-content rows above the scrollable list.
+///
+/// # Arguments
+///
+/// * `search_mode` - Whether the inline search box is currently showing.
+///
+/// # Returns
+///
+/// [`LIST_CHROME_ROWS`], plus one extra row when `search_mode` is `true`.
 pub fn list_chrome_rows(search_mode: bool) -> usize {
     LIST_CHROME_ROWS + if search_mode { 1 } else { 0 }
 }
@@ -31,6 +39,18 @@ fn group_key(pr: &NormalizedPullRequest, layout: PrListLayout) -> &str {
 }
 
 /// Builds group headers, PR rows, and spacers for the selected list layout.
+///
+/// # Arguments
+///
+/// * `pull_requests` - Already-filtered and ordered pull requests to lay out.
+/// * `layout` - Grouping/sort mode; determines whether group headers are
+///   inserted (see [`PrListLayout::groups`]) and what key groups by.
+///
+/// # Returns
+///
+/// A flat `Vec<VisualRow>` alternating headers/spacers with each PR's title
+/// and meta rows, in the order they should render top to bottom. Returns an
+/// empty `Vec` if `pull_requests` is empty.
 pub fn build_rows(pull_requests: &[&NormalizedPullRequest], layout: PrListLayout) -> Vec<VisualRow> {
     let mut rows: Vec<VisualRow> = Vec::new();
     let mut last_group: Option<&str> = None;
@@ -74,6 +94,18 @@ pub fn build_rows(pull_requests: &[&NormalizedPullRequest], layout: PrListLayout
 }
 
 /// Computes a scroll offset that keeps the selected visual row visible.
+///
+/// # Arguments
+///
+/// * `selected_row_index` - Index of the visual row that must stay visible.
+/// * `total` - Total number of visual rows.
+/// * `visible_rows` - Number of rows the viewport can show at once.
+///
+/// # Returns
+///
+/// `0` if `total` fits entirely within `visible_rows`. Otherwise, a scroll
+/// offset centering `selected_row_index` in the viewport, clamped so the
+/// viewport never scrolls past the first or last row.
 pub fn compute_scroll_start(selected_row_index: usize, total: usize, visible_rows: usize) -> usize {
     if total <= visible_rows {
         return 0;
@@ -92,6 +124,21 @@ pub struct VisiblePrRows {
 }
 
 /// Builds rows and extracts the viewport containing the selected PR.
+///
+/// # Arguments
+///
+/// * `pull_requests` - Already-filtered and ordered pull requests to lay out.
+/// * `selected_index` - Index into `pull_requests` of the currently
+///   selected PR.
+/// * `panel_height` - Total panel height in terminal rows, including chrome.
+/// * `search_mode` - Whether the inline search box is currently showing.
+/// * `layout` - Grouping/sort mode to build rows with.
+///
+/// # Returns
+///
+/// A `VisiblePrRows` containing the full row list, the viewport slice
+/// (`visible`), the viewport's start index into `rows`, and the number of
+/// rows available for content (at least `1`, even on a very small panel).
 pub fn get_visible_pr_rows(
     pull_requests: &[&NormalizedPullRequest],
     selected_index: usize,
@@ -118,6 +165,23 @@ pub fn get_visible_pr_rows(
 
 /// Resolves a mouse click at `local_row` (0 = the panel's own top border row)
 /// to the pull request index it landed on, or `None` if it hit chrome/spacer.
+///
+/// # Arguments
+///
+/// * `pull_requests` - Already-filtered and ordered pull requests backing
+///   the visible list.
+/// * `selected_index` - Index into `pull_requests` of the currently
+///   selected PR, used to compute the current viewport.
+/// * `panel_height` - Total panel height in terminal rows, including chrome.
+/// * `local_row` - Row clicked, relative to the panel's own top border.
+/// * `search_mode` - Whether the inline search box is currently showing.
+/// * `layout` - Grouping/sort mode currently in effect.
+///
+/// # Returns
+///
+/// `Some(index)` into `pull_requests` if `local_row` lands on a PR's title
+/// or meta row; `None` if it lands above the content area, on a group
+/// header/spacer, or past the end of the list.
 pub fn resolve_list_click_row(
     pull_requests: &[&NormalizedPullRequest],
     selected_index: usize,

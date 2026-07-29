@@ -15,11 +15,21 @@ pub struct StyledLine(pub Vec<(String, Style)>);
 
 impl StyledLine {
     /// Returns the line's text without terminal styling.
+    ///
+    /// # Returns
+    ///
+    /// The concatenation of every span's text, in order, with no style
+    /// information attached.
     pub fn plain_text(&self) -> String {
         self.0.iter().map(|(t, _)| t.as_str()).collect()
     }
 
     /// Returns the rendered terminal column width of the line.
+    ///
+    /// # Returns
+    ///
+    /// The display width in terminal columns, accounting for
+    /// double-width/zero-width Unicode characters via `unicode-width`.
     pub fn width(&self) -> usize {
         UnicodeWidthStr::width(self.plain_text().as_str())
     }
@@ -53,6 +63,23 @@ enum Block {
 ///
 /// A panic in the renderer falls back to plain wrapped text so malformed or
 /// unexpected Markdown cannot terminate the TUI.
+///
+/// # Arguments
+///
+/// * `markdown` - Raw Markdown source (a PR description or comment body).
+/// * `width` - Target column width to wrap and clip rendered lines to;
+///   treated as at least `1`.
+///
+/// # Returns
+///
+/// One `StyledLine` per rendered terminal row. Returns an empty `Vec` if
+/// `markdown` is empty or all whitespace.
+///
+/// # Panics
+///
+/// Does not panic: a panic inside the Markdown renderer itself is caught
+/// internally via `catch_unwind`, and rendering falls back to plain wrapped
+/// text instead of propagating.
 pub fn render_markdown_to_lines(markdown: &str, width: usize) -> Vec<StyledLine> {
     let trimmed = markdown.trim();
     if trimmed.is_empty() {

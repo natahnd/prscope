@@ -24,6 +24,17 @@ use crate::providers::registry;
 use super::runner::{load_projects, load_pull_requests, spawn_ado_org_detect};
 
 /// Builds the complete content currently exposed by the detail panel.
+///
+/// # Arguments
+///
+/// * `app` - Current application state, used to resolve the selected PR,
+///   its detail state, panel geometry, and active mode/filter.
+///
+/// # Returns
+///
+/// The full, unscrolled `ContentLine`s for the currently selected PR and
+/// panel mode, as produced by [`build_right_panel_lines`]. Returns an empty
+/// `Vec` if no PR is selected.
 pub fn current_right_panel_lines(app: &App) -> Vec<ContentLine> {
     let displayed = app.displayed_prs();
     let safe_index = app.safe_selected_index(displayed.len());
@@ -43,6 +54,19 @@ pub fn current_right_panel_lines(app: &App) -> Vec<ContentLine> {
 ///
 /// Call this after any event that may change list selection. Cached data is
 /// applied immediately; otherwise a single background request is scheduled.
+///
+/// # Arguments
+///
+/// * `app` - Application state to update in place: `current_detail_key`,
+///   `detail_state`, and scroll/selection state are all reset or refreshed
+///   as needed.
+/// * `tx` - Channel passed to [`spawn_detail_fetch`] if a background fetch
+///   is needed.
+///
+/// # Returns
+///
+/// This function does not return a value. If no client/project/selected PR
+/// is available, it clears `app.detail_state` instead of fetching.
 pub fn sync_detail_state(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     let displayed = app.displayed_prs();
     let safe_index = app.safe_selected_index(displayed.len());
@@ -83,6 +107,17 @@ pub fn sync_detail_state(app: &mut App, tx: &UnboundedSender<AppEvent>) {
 }
 
 /// Schedules unresolved-comment discovery for PRs not already requested.
+///
+/// # Arguments
+///
+/// * `app` - Application state; `pull_requests` and
+///   `comment_activity_requested` are read and updated respectively.
+/// * `tx` - Channel used to report each PR's comment activity result.
+///
+/// # Returns
+///
+/// This function does not return a value; it has no effect if no client or
+/// project is currently selected.
 pub fn sync_comment_activity(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     let (Some(client), Some(project)) = (app.client.clone(), app.selected_project.clone()) else {
         return;
@@ -97,6 +132,19 @@ pub fn sync_comment_activity(app: &mut App, tx: &UnboundedSender<AppEvent>) {
 }
 
 /// Applies one keyboard event according to the active screen and input mode.
+///
+/// # Arguments
+///
+/// * `app` - Application state to update in place based on the key.
+/// * `key` - The terminal key event to handle.
+/// * `tx` - Channel passed through to any background task the key triggers
+///   (e.g. loading projects, submitting setup, fetching detail).
+///
+/// # Returns
+///
+/// This function does not return a value; `Ctrl+C` sets `app.should_quit`
+/// and returns immediately, otherwise the event is dispatched to the
+/// handler for `app.screen`.
 pub fn handle_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<AppEvent>) {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         app.should_quit = true;
@@ -498,6 +546,17 @@ fn handle_filter_modal_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<Ap
 }
 
 /// Saves filters asynchronously after initial config hydration.
+///
+/// # Arguments
+///
+/// * `app` - Application state to read `filters` and `filters_hydrated` from.
+///
+/// # Returns
+///
+/// This function does not return a value; it does nothing if
+/// `app.filters_hydrated` is `false` (before initial config load
+/// completes), so it never overwrites the persisted filters with the
+/// pre-hydration default.
 pub fn persist_filters(app: &App) {
     if !app.filters_hydrated {
         return;
@@ -509,6 +568,17 @@ pub fn persist_filters(app: &App) {
 }
 
 /// Saves the current list layout asynchronously after config hydration.
+///
+/// # Arguments
+///
+/// * `app` - Application state to read `list_layout` and `filters_hydrated`
+///   from.
+///
+/// # Returns
+///
+/// This function does not return a value; it does nothing if
+/// `app.filters_hydrated` is `false`, for the same reason as
+/// [`persist_filters`].
 pub fn persist_list_layout(app: &App) {
     if !app.filters_hydrated {
         return;
@@ -523,6 +593,17 @@ pub fn persist_list_layout(app: &App) {
 ///
 /// Persistence is skipped during initial hydration to avoid overwriting the
 /// stored filters before they have been applied.
+///
+/// # Arguments
+///
+/// * `app` - Application state whose `filters` are persisted and used to
+///   reload the PR list.
+/// * `tx` - Channel used to report the reload's result.
+///
+/// # Returns
+///
+/// This function does not return a value; see [`persist_filters`] and
+/// [`on_filters_changed`] for what each step does.
 pub fn apply_filters_change(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     persist_filters(app);
     on_filters_changed(app, tx);
@@ -601,6 +682,21 @@ fn resolve_right_panel_point(
 }
 
 /// Applies pointer input for selection, scrolling, focus, and divider resizing.
+///
+/// # Arguments
+///
+/// * `app` - Application state to update in place based on the pointer
+///   action.
+/// * `event` - The raw terminal mouse event to handle.
+/// * `tx` - Channel passed through to any background task the event
+///   triggers (e.g. syncing detail state after a click changes selection).
+///
+/// # Returns
+///
+/// This function does not return a value; it has no effect while
+/// `app.screen` isn't `PrList` or while the filter modal is open, and
+/// silently ignores mouse event kinds it doesn't recognize (see
+/// `decode_mouse`).
 pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEvent>) {
     if app.screen != AppScreen::PrList || app.filter_modal_open {
         return;
@@ -720,6 +816,18 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
 }
 
 /// Reloads PR data using the current project, identity, and filters.
+///
+/// # Arguments
+///
+/// * `app` - Application state to read `client`/`selected_project`/
+///   `filters`/`current_user_id` from and to mark as loading.
+/// * `tx` - Channel used to report the reload's result.
+///
+/// # Returns
+///
+/// This function does not return a value; it has no effect if no client or
+/// project is currently selected. On success or failure, the background
+/// task reports `AppEvent::PrsLoaded`/`AppEvent::PrsLoadFailed` over `tx`.
 pub fn on_filters_changed(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     if let (Some(client), Some(project)) = (app.client.clone(), app.selected_project.clone()) {
         app.prs_loading = true;

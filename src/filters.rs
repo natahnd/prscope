@@ -23,6 +23,21 @@ pub struct ListCommandOptions {
 ///
 /// Identity-relative filters such as `--mine` and `--reviewer me` are only
 /// applied when the caller has already resolved the current user's ID.
+///
+/// # Arguments
+///
+/// * `options` - Raw CLI values from the `list` command.
+/// * `current_user_id` - The authenticated user's provider ID, if already
+///   resolved; required for `--mine`/`--reviewer me` to take effect.
+///
+/// # Returns
+///
+/// A `PullRequestFilters` ready to send to the provider client.
+///
+/// # Errors
+///
+/// Returns `Err` if `options.status` is set to a value other than `active`,
+/// `completed`, `abandoned`, or `all`.
 pub fn build_filters(
     options: &ListCommandOptions,
     current_user_id: Option<&str>,

@@ -48,6 +48,19 @@ async fn init_client(
 }
 
 /// Loads projects in a background task and sends one completion event.
+///
+/// # Arguments
+///
+/// * `client` - Provider client to list projects from.
+/// * `tx` - Channel used to report the result back to the main event loop.
+///
+/// # Returns
+///
+/// This function does not return a value; on success it sends
+/// `AppEvent::ProjectsLoaded` with the persisted last project, display
+/// context, and project list, or `AppEvent::ProjectsLoadFailed` with the
+/// error message on failure. It never propagates the provider error to the
+/// caller directly.
 pub async fn load_projects(client: Arc<dyn ProviderClient>, tx: UnboundedSender<AppEvent>) {
     let config = load_config().await;
     let last_project = get_last_project(&config);
@@ -67,6 +80,22 @@ pub async fn load_projects(client: Arc<dyn ProviderClient>, tx: UnboundedSender<
 }
 
 /// Loads repositories and pull requests concurrently for one project.
+///
+/// # Arguments
+///
+/// * `client` - Provider client to fetch repositories and pull requests from.
+/// * `project` - Project to load data for.
+/// * `filters` - Filters to apply to the pull request list.
+/// * `current_user_id` - Authenticated user's identity, used to resolve
+///   `needsMyReview` and "me" filters.
+/// * `tx` - Channel used to report the result back to the main event loop.
+///
+/// # Returns
+///
+/// This function does not return a value; on success it sends
+/// `AppEvent::PrsLoaded` with both results, or `AppEvent::PrsLoadFailed`
+/// with the error message if either the repository or pull request fetch
+/// fails. It never propagates the provider error to the caller directly.
 pub async fn load_pull_requests(
     client: Arc<dyn ProviderClient>,
     project: String,
@@ -87,6 +116,16 @@ pub async fn load_pull_requests(
 }
 
 /// Starts best-effort Azure DevOps organization discovery.
+///
+/// # Arguments
+///
+/// * `tx` - Channel used to report the detected organization (or `None`).
+///
+/// # Returns
+///
+/// This function does not return a value; the background task always sends
+/// `AppEvent::AdoOrgDetected` exactly once, with `None` if detection fails
+/// or finds nothing, so a failed lookup never blocks the setup screen.
 pub fn spawn_ado_org_detect(tx: UnboundedSender<AppEvent>) {
     tokio::spawn(async move {
         let org = crate::providers::azure_devops::detect_org::detect_azure_devops_org().await;
@@ -138,6 +177,24 @@ async fn bootstrap(app: &mut App, tx: &UnboundedSender<AppEvent>) {
 }
 
 /// Runs the interactive application and restores terminal state on exit.
+///
+/// # Arguments
+///
+/// * `initial_project` - Project to open directly, bypassing the project
+///   picker (typically from a `--project` CLI flag).
+/// * `initial_filters` - Filters to apply on first load, overriding any
+///   persisted filters for this run only.
+///
+/// # Returns
+///
+/// `Ok(())` after the event loop exits normally (the user quit).
+///
+/// # Errors
+///
+/// Returns `Err` if entering/leaving raw mode or the alternate screen fails,
+/// or if the event loop itself returns an error (e.g. a terminal I/O
+/// failure). Terminal state (raw mode, alternate screen, mouse reporting) is
+/// always restored before this function returns, even on error.
 pub async fn run_tui(initial_project: Option<String>, initial_filters: PullRequestFilters) -> Result<()> {
     terminal::enable_raw_mode()?;
     let mut out = stdout();

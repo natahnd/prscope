@@ -264,7 +264,7 @@ cargo clippy --all-targets --all-features
 ### Commenting Standard
 
 - Start each module with `//!` documentation that states its responsibility.
-- Use `///` on public APIs to describe contracts, side effects, and important defaults.
-- Use inline `//` comments for constraints, invariants, compatibility decisions, and non-obvious failure handling.
+- Document every public item with `///`, exhaustively: a summary of its contract, an `# Arguments` (or per-parameter) section when it takes non-trivial parameters, a `# Returns` section describing the value, a `# Errors` section listing when and why a `Result` is `Err`, and a `# Panics` section for any panicking path. Omit a section only when it plainly doesn't apply (e.g. no `# Errors` on a function that can't fail).
+- Use inline `//` comments to tell a story: constraints, invariants, compatibility decisions, and non-obvious failure handling. Never restate what the code already makes obvious.
 - Explain why the code takes an approach; do not narrate syntax or repeat names.
 - Describe the current design rather than preserving implementation history from earlier versions.

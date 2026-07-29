@@ -9,6 +9,13 @@ use tokio::time::timeout;
 ///
 /// CLI output is attempted first, then the extension's config file is read
 /// directly. Detection is best-effort and returns `None` on any failure.
+///
+/// # Returns
+///
+/// `Some` with the detected organization name if found via either method;
+/// `None` if the CLI isn't installed/configured, the config file is missing
+/// or unreadable, or no organization is set. This function never returns an
+/// error.
 pub async fn detect_azure_devops_org() -> Option<String> {
     if let Some(org) = detect_from_az_cli().await {
         return Some(org);

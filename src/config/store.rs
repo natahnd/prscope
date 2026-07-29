@@ -62,6 +62,12 @@ fn migrate_config(raw: RawAppConfig) -> AppConfigV2 {
 ///
 /// Missing, unreadable, or invalid files intentionally produce a default
 /// config so first-run setup can recover without manual file cleanup.
+///
+/// # Returns
+///
+/// The loaded and migrated `AppConfigV2`, or `AppConfigV2::default()` if the
+/// file is missing, unreadable, or fails to parse. This function never
+/// returns an error or panics.
 pub async fn load_config() -> AppConfigV2 {
     match load_config_inner().await {
         Ok(config) => config,
@@ -81,6 +87,21 @@ async fn load_config_inner() -> Result<AppConfigV2> {
 }
 
 /// Persists config as formatted JSON and restricts Unix permissions to `0600`.
+///
+/// # Arguments
+///
+/// * `config` - The full configuration to write to disk.
+///
+/// # Returns
+///
+/// `Ok(())` once the config file has been written.
+///
+/// # Errors
+///
+/// Returns `Err` if the config directory can't be created, the config can't
+/// be serialized, or the file can't be written. Failing to apply `0600`
+/// permissions on Unix is intentionally best-effort and does not cause this
+/// function to return `Err`.
 pub async fn save_config(config: &AppConfigV2) -> Result<()> {
     let path = config_path();
     if let Some(parent) = path.parent() {
@@ -113,6 +134,21 @@ async fn set_owner_only_permissions(path: &PathBuf) {
 async fn set_owner_only_permissions(_path: &PathBuf) {}
 
 /// Updates the last project for the active provider.
+///
+/// # Arguments
+///
+/// * `project` - Name of the project to remember as last-used.
+///
+/// # Returns
+///
+/// `Ok(())` once saved. Does nothing (but still returns `Ok(())`) if no
+/// provider is currently active, or if the active provider isn't Azure
+/// DevOps (the only provider with a persisted "last project" today).
+///
+/// # Errors
+///
+/// Returns `Err` if the updated config fails to save (see
+/// [`save_config`]).
 pub async fn update_last_project(project: &str) -> Result<()> {
     let mut config = load_config().await;
     let Some(active) = config.active_provider else {
@@ -127,6 +163,20 @@ pub async fn update_last_project(project: &str) -> Result<()> {
 }
 
 /// Updates the last interactive filter state for the active provider.
+///
+/// # Arguments
+///
+/// * `filters` - The filter selections to persist for next launch.
+///
+/// # Returns
+///
+/// `Ok(())` once saved. Does nothing (but still returns `Ok(())`) if no
+/// provider is active or the active provider isn't Azure DevOps.
+///
+/// # Errors
+///
+/// Returns `Err` if the updated config fails to save (see
+/// [`save_config`]).
 pub async fn update_last_filters(filters: &PullRequestFilters) -> Result<()> {
     let mut config = load_config().await;
     let Some(active) = config.active_provider else {
@@ -141,6 +191,20 @@ pub async fn update_last_filters(filters: &PullRequestFilters) -> Result<()> {
 }
 
 /// Updates the last PR list grouping or sort layout for the active provider.
+///
+/// # Arguments
+///
+/// * `layout` - The list layout to persist for next launch.
+///
+/// # Returns
+///
+/// `Ok(())` once saved. Does nothing (but still returns `Ok(())`) if no
+/// provider is active or the active provider isn't Azure DevOps.
+///
+/// # Errors
+///
+/// Returns `Err` if the updated config fails to save (see
+/// [`save_config`]).
 pub async fn update_last_list_layout(layout: PrListLayout) -> Result<()> {
     let mut config = load_config().await;
     let Some(active) = config.active_provider else {
@@ -155,6 +219,21 @@ pub async fn update_last_list_layout(layout: PrListLayout) -> Result<()> {
 }
 
 /// Activates a provider and saves the settings collected during setup.
+///
+/// # Arguments
+///
+/// * `provider_id` - Provider to activate.
+/// * `organization` - Organization name to persist, if the provider needs
+///   one (Azure DevOps does).
+///
+/// # Returns
+///
+/// The updated `AppConfigV2` after the change has been saved.
+///
+/// # Errors
+///
+/// Returns `Err` if the updated config fails to save (see
+/// [`save_config`]).
 pub async fn save_provider_config(
     provider_id: ProviderId,
     organization: Option<String>,
@@ -181,6 +260,20 @@ pub struct ConfigValuesPatch {
 }
 
 /// Applies a partial config update without clearing unspecified values.
+///
+/// # Arguments
+///
+/// * `values` - Fields to update; any field left `None` keeps its existing
+///   persisted value.
+///
+/// # Returns
+///
+/// The updated `AppConfigV2` after the change has been saved.
+///
+/// # Errors
+///
+/// Returns `Err` if the updated config fails to save (see
+/// [`save_config`]).
 pub async fn set_config_values(values: ConfigValuesPatch) -> Result<AppConfigV2> {
     let mut config = load_config().await;
 
@@ -205,11 +298,26 @@ pub async fn set_config_values(values: ConfigValuesPatch) -> Result<AppConfigV2>
 }
 
 /// Returns the resolved path to the application config file.
+///
+/// # Returns
+///
+/// The absolute path to `config.json`, honoring `XDG_CONFIG_HOME` when set,
+/// otherwise `~/.config/pr-reviews/config.json`.
 pub fn get_config_path() -> PathBuf {
     config_path()
 }
 
 /// Returns the provider context shown in screen headers.
+///
+/// # Arguments
+///
+/// * `config` - The loaded application configuration.
+///
+/// # Returns
+///
+/// The Azure DevOps organization name if that's the active provider and one
+/// is saved; otherwise the active provider's display name, or an empty
+/// string if no provider is active.
 pub fn get_provider_display_context(config: &AppConfigV2) -> String {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         return config
@@ -226,6 +334,15 @@ pub fn get_provider_display_context(config: &AppConfigV2) -> String {
 }
 
 /// Returns the last project for the active provider.
+///
+/// # Arguments
+///
+/// * `config` - The loaded application configuration.
+///
+/// # Returns
+///
+/// `Some` with the saved project name if the active provider is Azure
+/// DevOps and one is saved; `None` otherwise.
 pub fn get_last_project(config: &AppConfigV2) -> Option<String> {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         return config
@@ -238,6 +355,15 @@ pub fn get_last_project(config: &AppConfigV2) -> Option<String> {
 }
 
 /// Returns the last filters saved by the interactive view.
+///
+/// # Arguments
+///
+/// * `config` - The loaded application configuration.
+///
+/// # Returns
+///
+/// `Some` with the saved filters if the active provider is Azure DevOps and
+/// filters have been persisted; `None` otherwise.
 pub fn get_last_filters(config: &AppConfigV2) -> Option<PullRequestFilters> {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         return config
@@ -250,6 +376,15 @@ pub fn get_last_filters(config: &AppConfigV2) -> Option<PullRequestFilters> {
 }
 
 /// Returns the saved PR list layout or its default.
+///
+/// # Arguments
+///
+/// * `config` - The loaded application configuration.
+///
+/// # Returns
+///
+/// The saved layout if the active provider is Azure DevOps and one is
+/// persisted; otherwise `PrListLayout::default()`.
 pub fn get_last_list_layout(config: &AppConfigV2) -> PrListLayout {
     if config.active_provider == Some(ProviderId::AzureDevops) {
         if let Some(layout) = config

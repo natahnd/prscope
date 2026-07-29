@@ -24,6 +24,17 @@ pub struct AzureDevOpsClient {
 
 impl AzureDevOpsClient {
     /// Creates a client for one organization using a bearer token or PAT.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - Bearer token or Personal Access Token to authenticate
+    ///   requests with.
+    /// * `organization` - Azure DevOps organization name (as in
+    ///   `dev.azure.com/<organization>`).
+    ///
+    /// # Returns
+    ///
+    /// A new `AzureDevOpsClient` scoped to `organization`.
     pub fn new(token: String, organization: String) -> Self {
         AzureDevOpsClient {
             token,
@@ -311,6 +322,21 @@ impl ProviderClient for AzureDevOpsClient {
 }
 
 /// Creates an Azure DevOps client and validates that an organization is set.
+///
+/// # Arguments
+///
+/// * `token` - Bearer token or Personal Access Token to authenticate
+///   requests with.
+/// * `organization` - Organization name, if one has been configured or
+///   entered during setup.
+///
+/// # Returns
+///
+/// A new `AzureDevOpsClient` scoped to `organization`.
+///
+/// # Errors
+///
+/// Returns `Err` if `organization` is `None`.
 pub fn create_azure_devops_client(
     token: String,
     organization: Option<String>,

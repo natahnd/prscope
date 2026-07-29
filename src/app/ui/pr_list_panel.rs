@@ -14,6 +14,14 @@ use crate::app::state::{App, PanelFocus};
 use crate::humanize::{format_compact_age, parse_date};
 
 /// Renders the filtered and grouped pull request viewport.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region to render the list panel (border, header lines, and
+///   scrollable rows) into.
+/// * `app` - Application state used for the filtered/sorted PR list,
+///   selection, active filters, layout, and search state.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let focused = app.panel_focus == PanelFocus::List;
     let displayed = app.displayed_prs();

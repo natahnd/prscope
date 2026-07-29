@@ -11,6 +11,14 @@ use ratatui::Frame;
 use crate::app::state::App;
 
 /// Renders provider context, project, PR count, and refresh state.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region to render the header (and, if a load error is active,
+///   the extra error line) into.
+/// * `app` - Application state used for the display context, project name,
+///   PR count, loading/refresh state, and any load error.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let has_error = app.prs_error.is_some();
     let rows = Layout::default()

@@ -18,12 +18,27 @@ use crate::api::types::AppScreen;
 use super::state::App;
 
 /// Renders the initial frame while config and provider state are loading.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into; the loading text fills the entire frame area.
 pub fn render_loading(f: &mut Frame) {
     let p = Paragraph::new("Loading…").style(Style::default().add_modifier(Modifier::DIM));
     f.render_widget(p, f.area());
 }
 
 /// Renders the active screen and any modal overlay.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `app` - Application state; `app.screen` selects which screen renders,
+///   and `app.bootstrapped` gates showing the loading screen instead.
+///
+/// # Returns
+///
+/// This function does not return a value; it renders the loading screen and
+/// returns immediately if `app.bootstrapped` is `false`.
 pub fn render(f: &mut Frame, app: &App) {
     if !app.bootstrapped {
         render_loading(f);

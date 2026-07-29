@@ -86,6 +86,12 @@ pub struct ListArgs {
 }
 
 /// Parses command-line arguments, dispatches the command, and reports failures.
+///
+/// # Returns
+///
+/// This function does not return a value. On a dispatch error, it prints the
+/// error to stderr via [`plain_output::print_error`] and exits the process
+/// with status `1` instead of returning.
 pub async fn run() {
     let cli = Cli::parse();
 

@@ -58,6 +58,20 @@ pub struct FilterModalState {
 }
 
 /// Initializes modal state from active filters and available repositories.
+///
+/// # Arguments
+///
+/// * `filters` - Currently applied filters to seed the modal's selections
+///   from.
+/// * `repositories` - Repositories available in the current project, used to
+///   resolve `filters.repository_name` to a row index (index 0 is always
+///   "all repositories").
+///
+/// # Returns
+///
+/// A `FilterModalState` with each selection index resolved from `filters`,
+/// falling back to index `0` for any value not found among the known
+/// options (e.g. a repository that no longer exists).
 pub fn filter_modal_state_from_filters(
     filters: &PullRequestFilters,
     repositories: &[AdoRepository],
@@ -98,6 +112,21 @@ pub fn filter_modal_state_from_filters(
 }
 
 /// Converts modal selections into filters ready for provider requests.
+///
+/// # Arguments
+///
+/// * `state` - Current modal selections to convert.
+/// * `repositories` - Repositories available in the current project, used to
+///   resolve `state.repo_index` back to a repository name.
+/// * `current_user_id` - Authenticated user's provider identity, used to
+///   populate `reviewer_id`/`author_id` when the corresponding "me" toggle
+///   is enabled.
+///
+/// # Returns
+///
+/// A `PullRequestFilters` ready to send to the provider client. `search` and
+/// `repository_id` are left at their `Default` values; the caller is
+/// responsible for merging in any active free-text search separately.
 pub fn modal_state_to_filters(
     state: &FilterModalState,
     repositories: &[AdoRepository],
@@ -130,6 +159,16 @@ pub fn modal_state_to_filters(
 }
 
 /// Builds compact labels for active filters in the PR list header.
+///
+/// # Arguments
+///
+/// * `filters` - Filters currently applied to the PR list.
+///
+/// # Returns
+///
+/// One label per active filter (status is always included; repo, reviewer,
+/// author, draft, active-comments, and search labels appear only when set to
+/// a non-default value), in a fixed display order.
 pub fn filters_to_labels(filters: &PullRequestFilters) -> Vec<String> {
     let mut labels = vec![filters.status.to_string()];
     if let Some(repo) = &filters.repository_name {
@@ -160,19 +199,30 @@ pub fn filters_to_labels(filters: &PullRequestFilters) -> Vec<String> {
 }
 
 impl FilterModalState {
-    /// Moves the current choice one position left.
+    /// Moves focus to the previous section in [`SECTIONS`] order.
+    ///
+    /// Clamps at the first section; has no effect if `self.section` is
+    /// already `FilterSection::Status`.
     pub fn move_left(&mut self) {
         let idx = SECTIONS.iter().position(|s| *s == self.section).unwrap_or(0);
         self.section = SECTIONS[idx.saturating_sub(1)];
     }
 
-    /// Moves the current choice one position right.
+    /// Moves focus to the next section in [`SECTIONS`] order.
+    ///
+    /// Clamps at the last section; has no effect if `self.section` is
+    /// already `FilterSection::Toggles`.
     pub fn move_right(&mut self) {
         let idx = SECTIONS.iter().position(|s| *s == self.section).unwrap_or(0);
         self.section = SECTIONS[(idx + 1).min(SECTIONS.len() - 1)];
     }
 
-    /// Moves focus to the next section or repository row.
+    /// Advances the selection within the currently focused section.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo_count` - Number of repositories available, used to clamp
+    ///   `repo_index` (which has one extra leading "all repositories" row).
     pub fn move_down(&mut self, repo_count: usize) {
         match self.section {
             FilterSection::Status => {
@@ -193,7 +243,9 @@ impl FilterModalState {
         }
     }
 
-    /// Moves focus to the previous section or repository row.
+    /// Moves the selection within the currently focused section back by one.
+    ///
+    /// Clamps at `0` for whichever index belongs to the focused section.
     pub fn move_up(&mut self) {
         match self.section {
             FilterSection::Status => self.status_index = self.status_index.saturating_sub(1),
@@ -205,6 +257,10 @@ impl FilterModalState {
     }
 
     /// Toggles the focused boolean filter, if applicable.
+    ///
+    /// Has no effect unless `self.section` is `FilterSection::Toggles`; the
+    /// specific toggle affected (`reviewer_me` or `author_me`) is chosen by
+    /// `self.toggle_index`.
     pub fn toggle_space(&mut self) {
         if self.section == FilterSection::Toggles {
             if self.toggle_index == 0 {

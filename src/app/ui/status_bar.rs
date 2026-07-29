@@ -10,6 +10,14 @@ use crate::api::types::AppScreen;
 use crate::app::state::App;
 
 /// Renders controls relevant to the active screen or modal.
+///
+/// # Arguments
+///
+/// * `f` - Frame to draw into.
+/// * `area` - Region to render the hint bar into.
+/// * `app` - Application state used to select the hint text for the active
+///   screen, and whether the filter modal or provider setup detection is in
+///   progress.
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let hint: &str = if app.filter_modal_open {
         "↑↓ navigate · Space toggle · Enter apply · Esc cancel"

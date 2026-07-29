@@ -4,6 +4,15 @@ use chrono::{DateTime, Datelike, Utc};
 
 /// Parses an Azure DevOps ISO-8601 timestamp string. Falls back to "now" on
 /// parse failure so a malformed date never panics the UI.
+///
+/// # Arguments
+///
+/// * `value` - An RFC 3339 timestamp string, as returned by Azure DevOps.
+///
+/// # Returns
+///
+/// The parsed `DateTime<Utc>`, or the current time if `value` fails to
+/// parse as RFC 3339. This function never returns an error or panics.
 pub fn parse_date(value: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(value)
         .map(|d| d.with_timezone(&Utc))
@@ -19,6 +28,18 @@ const MINUTES_IN_TWO_MONTHS: i64 = 86400;
 ///
 /// The thresholds intentionally match the wording already exposed by the CLI,
 /// so output remains consistent across the TUI and plain table modes.
+///
+/// # Arguments
+///
+/// * `date` - The timestamp to compare against the current time. Dates in
+///   the future are clamped to "less than a minute" rather than producing a
+///   negative duration.
+/// * `add_suffix` - Whether to append `" ago"` to the phrase.
+///
+/// # Returns
+///
+/// A phrase such as `"about 1 hour"`, `"5 days"`, or `"almost 2 years"`
+/// (with `" ago"` appended if `add_suffix` is `true`).
 pub fn format_distance_to_now(date: DateTime<Utc>, add_suffix: bool) -> String {
     let now = Utc::now();
     let seconds = (now - date).num_seconds().max(0);
@@ -83,6 +104,17 @@ fn month_difference(earlier: DateTime<Utc>, later: DateTime<Utc>) -> i64 {
 }
 
 /// Formats a compact age such as `5d`, `3h`, or `2mo` for PR list rows.
+///
+/// # Arguments
+///
+/// * `date` - The timestamp to compare against the current time. Dates in
+///   the future are clamped to `"0s"` rather than producing a negative
+///   duration.
+///
+/// # Returns
+///
+/// A compact suffix: seconds (`s`), minutes (`m`), hours (`h`), days (`d`),
+/// months (`mo`), or years (`y`) — whichever bucket `date`'s age falls into.
 pub fn format_compact_age(date: DateTime<Utc>) -> String {
     let seconds = (Utc::now() - date).num_seconds().max(0);
     if seconds < 60 {

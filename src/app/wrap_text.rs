@@ -3,6 +3,16 @@
 /// Greedily word-wraps text to a fixed column width, preserving explicit
 /// newlines (paragraph breaks) as blank lines. Used as the defensive
 /// fallback if markdown rendering ever panics.
+///
+/// # Arguments
+///
+/// * `text` - Plain text to wrap; may contain `\n` paragraph breaks.
+/// * `width` - Target column width; treated as at least `1`.
+///
+/// # Returns
+///
+/// One `String` per wrapped line. A word longer than `width` is hard-broken
+/// across multiple lines rather than left overflowing.
 pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let safe_width = width.max(1);
     let mut lines: Vec<String> = Vec::new();
@@ -51,6 +61,17 @@ fn split_at_chars(s: &str, n: usize) -> (&str, &str) {
 }
 
 /// Removes simple HTML tags while preserving their text content.
+///
+/// # Arguments
+///
+/// * `content` - Text that may contain HTML tags (e.g. a provider comment
+///   body).
+///
+/// # Returns
+///
+/// `content` with everything between `<` and `>` removed and the result
+/// trimmed. Malformed markup (e.g. an unterminated tag) simply drops the
+/// remaining text rather than panicking.
 pub fn strip_html(content: &str) -> String {
     let mut out = String::new();
     let mut in_tag = false;

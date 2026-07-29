@@ -42,6 +42,11 @@ pub enum CommentStatusFilter {
 
 impl CommentStatusFilter {
     /// Advances to the next status filter in the keyboard cycle.
+    ///
+    /// # Returns
+    ///
+    /// The `CommentStatusFilter` following `self`: All → Active → Resolved,
+    /// wrapping back to All.
     pub fn next(self) -> Self {
         match self {
             CommentStatusFilter::All => CommentStatusFilter::Active,
@@ -164,6 +169,19 @@ pub struct App {
 
 impl App {
     /// Creates pre-bootstrap state using any CLI-supplied project and filters.
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_project` - Project to open directly once bootstrap
+    ///   completes, bypassing the project picker.
+    /// * `initial_filters` - Filters to seed `self.filters` with; overrides
+    ///   persisted filters for this run only.
+    ///
+    /// # Returns
+    ///
+    /// A fresh `App` with `screen` set to `ProviderSelect` and
+    /// `bootstrapped: false`; `bootstrap` (in `runner.rs`) resolves the real
+    /// starting screen and provider client asynchronously.
     pub fn new(initial_project: Option<String>, initial_filters: PullRequestFilters) -> Self {
         App {
             should_quit: false,
@@ -231,6 +249,12 @@ impl App {
     }
 
     /// Computes current panel geometry from terminal size and UI state.
+    ///
+    /// # Returns
+    ///
+    /// The `LayoutGeometry` for the current `terminal_columns`/
+    /// `terminal_rows`, `left_width_ratio`, and whether a PR-load error line
+    /// is currently showing.
     pub fn geometry(&self) -> LayoutGeometry {
         compute_layout_geometry(
             self.terminal_columns,
@@ -244,6 +268,12 @@ impl App {
 
     /// Filtered + sorted PR list for the list panel. Ordering must match how
     /// `build_rows` groups rows for the active `list_layout`.
+    ///
+    /// # Returns
+    ///
+    /// `self.pull_requests`, narrowed by the active search text and
+    /// active-comments filter, then sorted according to `self.list_layout`.
+    /// Returns an empty `Vec` if no pull requests match.
     pub fn displayed_prs(&self) -> Vec<&NormalizedPullRequest> {
         let query = self
             .filters
@@ -311,6 +341,17 @@ impl App {
     }
 
     /// Clamps the selected PR index to the current filtered result length.
+    ///
+    /// # Arguments
+    ///
+    /// * `displayed_len` - Length of the currently filtered/sorted PR list
+    ///   (from [`App::displayed_prs`]).
+    ///
+    /// # Returns
+    ///
+    /// `0` if `displayed_len` is `0`; otherwise `self.selected_index` capped
+    /// at `displayed_len - 1`, so a filter change that shrinks the list never
+    /// leaves the selection pointing past its end.
     pub fn safe_selected_index(&self, displayed_len: usize) -> usize {
         if displayed_len == 0 {
             0
@@ -321,6 +362,13 @@ impl App {
 
     /// Returns projects with the last-used project pinned first, followed by
     /// alphabetical order, then narrowed by the current search text.
+    ///
+    /// # Returns
+    ///
+    /// `self.projects`, reordered so `self.last_project` (if any) sorts
+    /// first, then filtered to those whose name contains
+    /// `self.project_search` (case-insensitive). Returns an empty `Vec` if
+    /// no project matches the current search text.
     pub fn filtered_projects(&self) -> Vec<&Project> {
         let mut sorted: Vec<&Project> = self.projects.iter().collect();
         if let Some(last) = &self.last_project {
@@ -345,6 +393,12 @@ impl App {
     }
 
     /// Returns compact labels describing all active PR filters.
+    ///
+    /// # Returns
+    ///
+    /// The same labels as [`super::filter_modal::filters_to_labels`], with
+    /// `self.search_query` folded in as the active search term when
+    /// `self.filters.search` isn't already set.
     pub fn filter_labels(&self) -> Vec<String> {
         let mut filters = self.filters.clone();
         if filters.search.is_none() && !self.search_query.is_empty() {
