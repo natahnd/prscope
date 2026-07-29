@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 use ratatui::Frame;
 
+use crate::api::types::ProviderId;
 use crate::app::state::App;
 use crate::providers::registry;
 
@@ -68,27 +69,65 @@ pub fn render_picker(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(lines), rows[1]);
 }
 
-/// Renders Azure DevOps organization detection and entry state.
+/// Renders provider-specific credential detection and entry state.
 ///
 /// # Arguments
 ///
 /// * `f` - Frame to draw into.
 /// * `area` - Region to render the title and setup form into.
-/// * `app` - Application state used for detection/loading/error state and
-///   the organization name typed so far.
+/// * `app` - Application state used for detection/loading/error state, which
+///   provider is being set up (`app.setup_provider`), and the value typed so
+///   far.
 pub fn render_setup(f: &mut Frame, area: Rect, app: &App) {
+    let is_github = app.setup_provider == Some(ProviderId::Github);
+
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(area);
-    f.render_widget(title_block("Azure DevOps Setup"), rows[0]);
+    f.render_widget(
+        title_block(if is_github { "GitHub Setup" } else { "Azure DevOps Setup" }),
+        rows[0],
+    );
 
     let mut lines: Vec<Line> = vec![Line::from("")];
     if app.setup_detecting {
         let frame = SPINNER_FRAMES[app.spinner_frame % SPINNER_FRAMES.len()];
+        let message = if is_github {
+            "Checking for gh CLI or GITHUB_TOKEN credentials…"
+        } else {
+            "Detecting existing Azure DevOps configuration…"
+        };
         lines.push(Line::from(vec![
             Span::styled(format!("{frame} "), Style::default().fg(Color::Cyan)),
-            Span::raw("Detecting existing Azure DevOps configuration…"),
+            Span::raw(message),
+        ]));
+    } else if is_github {
+        if app.setup_token_detected {
+            lines.push(Line::from("GitHub credentials detected."));
+            lines.push(Line::from(Span::styled(
+                "Press Enter to continue, or paste a different token below.",
+                Style::default().add_modifier(Modifier::DIM),
+            )));
+        } else {
+            lines.push(Line::from("Paste a GitHub personal access token:"));
+            lines.push(Line::from(Span::styled(
+                "Needs repo and read:org scopes. Or run `gh auth login` and restart.",
+                Style::default().add_modifier(Modifier::DIM),
+            )));
+        }
+        lines.push(Line::from(""));
+        let cursor = if app.setup_loading {
+            " (connecting…)".to_string()
+        } else {
+            "█".to_string()
+        };
+        // Mask the typed value since it may hold a pasted secret.
+        let masked: String = "•".repeat(app.setup_value.chars().count());
+        lines.push(Line::from(vec![
+            Span::styled("> ", Style::default().fg(Color::Cyan)),
+            Span::raw(masked),
+            Span::styled(cursor, Style::default().add_modifier(Modifier::DIM)),
         ]));
     } else {
         lines.push(Line::from("Enter your Azure DevOps organization:"));

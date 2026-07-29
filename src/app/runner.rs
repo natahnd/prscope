@@ -133,6 +133,36 @@ pub fn spawn_ado_org_detect(tx: UnboundedSender<AppEvent>) {
     });
 }
 
+/// Starts best-effort GitHub credential discovery.
+///
+/// Unlike Azure DevOps org detection, there's no separate value to discover
+/// and display for confirmation — the only thing to resolve is the
+/// credential itself, so this also validates it with a live API call before
+/// reporting success.
+///
+/// # Arguments
+///
+/// * `tx` - Channel used to report whether a usable credential was found.
+///
+/// # Returns
+///
+/// This function does not return a value; the background task always sends
+/// `AppEvent::GithubAutoDetected` exactly once, `true` only if a token
+/// resolved and was validated against the GitHub API.
+pub fn spawn_github_auth_detect(tx: UnboundedSender<AppEvent>) {
+    tokio::spawn(async move {
+        let detected = async {
+            let token = registry::resolve_provider_token(ProviderId::Github).await?;
+            let client = registry::create_github_client_direct(token)?;
+            client.get_current_user().await?;
+            anyhow::Ok(())
+        }
+        .await
+        .is_ok();
+        let _ = tx.send(AppEvent::GithubAutoDetected(detected));
+    });
+}
+
 async fn bootstrap(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     let config = load_config().await;
     let configured = crate::api::types::is_configured_provider(&config);
@@ -347,6 +377,32 @@ fn handle_app_event(app: &mut App, event: AppEvent, tx: &UnboundedSender<AppEven
             }
         }
         AppEvent::AdoSubmitFailed(err) => {
+            app.setup_loading = false;
+            app.setup_error = Some(err);
+        }
+        AppEvent::GithubAutoDetected(detected) => {
+            app.setup_detecting = false;
+            app.setup_token_detected = detected;
+        }
+        AppEvent::GithubSubmitSucceeded { client, user_id } => {
+            app.client = Some(client.clone());
+            // `CurrentUser.id` is the GitHub login, so this doubles as a
+            // "connected as @login" indicator in the header.
+            app.display_context = user_id.clone();
+            app.current_user_id = Some(user_id);
+            app.setup_loading = false;
+            app.setup_error = None;
+            if app.initial_project.is_some() {
+                app.screen = AppScreen::PrList;
+                app.selected_project = app.initial_project.clone();
+                on_filters_changed(app, tx);
+            } else {
+                app.screen = AppScreen::ProjectSelect;
+                app.projects_loading = true;
+                tokio::spawn(load_projects(client, tx.clone()));
+            }
+        }
+        AppEvent::GithubSubmitFailed(err) => {
             app.setup_loading = false;
             app.setup_error = Some(err);
         }

@@ -158,6 +158,10 @@ pub async fn update_last_project(project: &str) -> Result<()> {
         let mut ado = config.providers.azure_devops.clone().unwrap_or_default();
         ado.last_project = Some(project.to_string());
         config.providers.azure_devops = Some(ado);
+    } else if active == ProviderId::Github {
+        let mut github = config.providers.github.clone().unwrap_or_default();
+        github.last_project = Some(project.to_string());
+        config.providers.github = Some(github);
     }
     save_config(&config).await
 }
@@ -186,6 +190,10 @@ pub async fn update_last_filters(filters: &PullRequestFilters) -> Result<()> {
         let mut ado = config.providers.azure_devops.clone().unwrap_or_default();
         ado.last_filters = Some(filters.clone());
         config.providers.azure_devops = Some(ado);
+    } else if active == ProviderId::Github {
+        let mut github = config.providers.github.clone().unwrap_or_default();
+        github.last_filters = Some(filters.clone());
+        config.providers.github = Some(github);
     }
     save_config(&config).await
 }
@@ -214,6 +222,10 @@ pub async fn update_last_list_layout(layout: PrListLayout) -> Result<()> {
         let mut ado = config.providers.azure_devops.clone().unwrap_or_default();
         ado.last_list_layout = Some(layout);
         config.providers.azure_devops = Some(ado);
+    } else if active == ProviderId::Github {
+        let mut github = config.providers.github.clone().unwrap_or_default();
+        github.last_list_layout = Some(layout);
+        config.providers.github = Some(github);
     }
     save_config(&config).await
 }
@@ -351,6 +363,13 @@ pub fn get_last_project(config: &AppConfigV2) -> Option<String> {
             .as_ref()
             .and_then(|c| c.last_project.clone());
     }
+    if config.active_provider == Some(ProviderId::Github) {
+        return config
+            .providers
+            .github
+            .as_ref()
+            .and_then(|c| c.last_project.clone());
+    }
     None
 }
 
@@ -369,6 +388,13 @@ pub fn get_last_filters(config: &AppConfigV2) -> Option<PullRequestFilters> {
         return config
             .providers
             .azure_devops
+            .as_ref()
+            .and_then(|c| c.last_filters.clone());
+    }
+    if config.active_provider == Some(ProviderId::Github) {
+        return config
+            .providers
+            .github
             .as_ref()
             .and_then(|c| c.last_filters.clone());
     }
@@ -393,6 +419,11 @@ pub fn get_last_list_layout(config: &AppConfigV2) -> PrListLayout {
             .as_ref()
             .and_then(|c| c.last_list_layout)
         {
+            return layout;
+        }
+    }
+    if config.active_provider == Some(ProviderId::Github) {
+        if let Some(layout) = config.providers.github.as_ref().and_then(|c| c.last_list_layout) {
             return layout;
         }
     }

@@ -8,8 +8,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::api::types::{
-    CodeSnippet, NormalizedPullRequest, PrThread, Project, PullRequestDetail, PullRequestFilters,
-    Repository,
+    CodeSnippet, DraftFilter, NormalizedPullRequest, PrThread, Project, PullRequestDetail,
+    PullRequestFilters, Repository,
 };
 
 /// Identity of the authenticated provider user.
@@ -181,4 +181,41 @@ pub struct ProviderInfo {
     pub id: crate::api::types::ProviderId,
     pub name: &'static str,
     pub enabled: bool,
+}
+
+/// Applies filters that providers don't (or can't) push server-side.
+///
+/// Shared by every [`ProviderClient`] implementation: server-side search only
+/// narrows results by identity and lifecycle, so repository, author-name,
+/// reviewer, draft, and free-text filtering happen here uniformly.
+pub(crate) fn matches_client_filters(pr: &NormalizedPullRequest, filters: &PullRequestFilters) -> bool {
+    if let Some(repo_name) = &filters.repository_name {
+        if &pr.repo_name != repo_name {
+            return false;
+        }
+    }
+    if let Some(author) = &filters.author {
+        if pr.author.to_lowercase() != author.to_lowercase() {
+            return false;
+        }
+    }
+    if filters.reviewer_me.unwrap_or(false) && !pr.reviewers.iter().any(|r| r.is_current_user) {
+        return false;
+    }
+    if let Some(draft_filter) = filters.draft_filter {
+        if draft_filter == DraftFilter::Hide && pr.is_draft {
+            return false;
+        }
+        if draft_filter == DraftFilter::Only && !pr.is_draft {
+            return false;
+        }
+    }
+    if let Some(search) = &filters.search {
+        let q = search.to_lowercase();
+        let haystack = format!("{} {} {}", pr.repo_name, pr.title, pr.author).to_lowercase();
+        if !haystack.contains(&q) {
+            return false;
+        }
+    }
+    true
 }

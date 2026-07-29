@@ -90,13 +90,20 @@ pub struct AzureDevOpsProviderConfig {
     pub last_list_layout: Option<PrListLayout>,
 }
 
-/// Reserved persisted settings for the planned GitHub provider.
+/// Persisted GitHub settings and last-used UI state.
+///
+/// GitHub has no fixed upfront "organization" the way Azure DevOps does — the
+/// owner (org or personal account) is chosen dynamically on the project
+/// select screen, so this mirrors [`AzureDevOpsProviderConfig`] minus that
+/// field.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GitHubProviderConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    #[serde(rename = "lastRepo", skip_serializing_if = "Option::is_none")]
-    pub last_repo: Option<String>,
+    #[serde(rename = "lastProject", skip_serializing_if = "Option::is_none")]
+    pub last_project: Option<String>,
+    #[serde(rename = "lastFilters", skip_serializing_if = "Option::is_none")]
+    pub last_filters: Option<PullRequestFilters>,
+    #[serde(rename = "lastListLayout", skip_serializing_if = "Option::is_none")]
+    pub last_list_layout: Option<PrListLayout>,
 }
 
 /// Provider-specific sections in the versioned application config.
@@ -546,7 +553,9 @@ pub fn is_configured_provider(config: &AppConfigV2) -> bool {
             .as_ref()
             .and_then(|c| c.organization.as_ref())
             .is_some(),
-        ProviderId::Github => false,
+        // GitHub has no required upfront field like ADO's organization —
+        // reaching this arm already proves `active_provider == Github`.
+        ProviderId::Github => true,
     }
 }
 

@@ -9,7 +9,7 @@ use crate::api::types::{
     NormalizedPullRequest, PrComment, PrThread, Project, PullRequestDetail, PullRequestFilters,
     PullRequestStatus, RawPullRequest, RawPullRequestDetail, RawThread, Repository,
 };
-use crate::providers::{CurrentUser, ProviderClient};
+use crate::providers::{matches_client_filters, CurrentUser, ProviderClient};
 
 const API_VERSION: &str = "7.0";
 /// `connectionData` is preview-only; stable 7.x returns HTTP 400.
@@ -436,35 +436,3 @@ fn normalize_thread(thread: RawThread) -> PrThread {
     }
 }
 
-fn matches_client_filters(pr: &NormalizedPullRequest, filters: &PullRequestFilters) -> bool {
-    if let Some(repo_name) = &filters.repository_name {
-        if &pr.repo_name != repo_name {
-            return false;
-        }
-    }
-    if let Some(author) = &filters.author {
-        if pr.author.to_lowercase() != author.to_lowercase() {
-            return false;
-        }
-    }
-    if filters.reviewer_me.unwrap_or(false) && !pr.reviewers.iter().any(|r| r.is_current_user) {
-        return false;
-    }
-    if let Some(draft_filter) = filters.draft_filter {
-        use crate::api::types::DraftFilter;
-        if draft_filter == DraftFilter::Hide && pr.is_draft {
-            return false;
-        }
-        if draft_filter == DraftFilter::Only && !pr.is_draft {
-            return false;
-        }
-    }
-    if let Some(search) = &filters.search {
-        let q = search.to_lowercase();
-        let haystack = format!("{} {} {}", pr.repo_name, pr.title, pr.author).to_lowercase();
-        if !haystack.contains(&q) {
-            return false;
-        }
-    }
-    true
-}

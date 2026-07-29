@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::api::types::{
-    AppScreen, CommentActivityFilter, NormalizedPullRequest, PrListLayout, Project,
+    AppScreen, CommentActivityFilter, NormalizedPullRequest, PrListLayout, Project, ProviderId,
     PullRequestFilters, Repository,
 };
 use crate::humanize::parse_date;
@@ -82,6 +82,15 @@ pub enum AppEvent {
     },
     AdoSubmitFailed(String),
 
+    /// Whether a usable GitHub credential was found (and validated) during
+    /// the background auth-detect check. Carries no secret.
+    GithubAutoDetected(bool),
+    GithubSubmitSucceeded {
+        client: Arc<dyn ProviderClient>,
+        user_id: String,
+    },
+    GithubSubmitFailed(String),
+
     DetailLoaded {
         key: String,
         state: PullRequestDetailState,
@@ -103,11 +112,17 @@ pub struct App {
     pub screen: AppScreen,
 
     // Provider setup and organization entry.
+    pub setup_provider: Option<ProviderId>,
     pub setup_loading: bool,
     pub setup_detecting: bool,
     pub setup_error: Option<String>,
     pub setup_value: String,
     pub setup_detected_from_az: bool,
+    /// GitHub's analogue of `setup_detected_from_az`: whether a usable
+    /// credential was found automatically (`gh` CLI, env var, or saved PAT),
+    /// kept separate since it means "a token resolved," not "an org string
+    /// was found."
+    pub setup_token_detected: bool,
     pub spinner_frame: usize,
     pub provider_picker_index: usize,
 
@@ -191,11 +206,13 @@ impl App {
             current_user_id: None,
             screen: AppScreen::ProviderSelect,
 
+            setup_provider: None,
             setup_loading: false,
             setup_detecting: true,
             setup_error: None,
             setup_value: String::new(),
             setup_detected_from_az: false,
+            setup_token_detected: false,
             spinner_frame: 0,
             provider_picker_index: 0,
 
