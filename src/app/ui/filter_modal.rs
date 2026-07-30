@@ -5,7 +5,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 use ratatui::Frame;
 
 use crate::app::filter_modal::{
-    FilterModalState, FilterSection, COMMENT_OPTIONS, DRAFT_OPTIONS, STATUS_OPTIONS,
+    FilterModalState, FilterSection, APPROVED_BY_OPTIONS, AUTHOR_OPTIONS, COMMENT_OPTIONS,
+    DRAFT_OPTIONS, REVIEW_STATUS_OPTIONS, STATUS_OPTIONS,
 };
 use crate::app::state::App;
 
@@ -14,7 +15,20 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         return;
     };
     let repo_count = app.repositories.len();
-    let content_rows = 1 + [4, 1 + repo_count, 3, 2, 2].into_iter().max().unwrap_or(4);
+    let content_rows = 1
+        + [
+            4,
+            1 + repo_count,
+            3,
+            2,
+            REVIEW_STATUS_OPTIONS.len(),
+            APPROVED_BY_OPTIONS.len(),
+            AUTHOR_OPTIONS.len(),
+            2,
+        ]
+        .into_iter()
+        .max()
+        .unwrap_or(4);
     let total_height = (2 + 1 + 1 + content_rows) as u16;
     let height = total_height.min(area.height);
 
@@ -48,15 +62,21 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
+            Constraint::Length(12),
+            Constraint::Length(1),
+            Constraint::Length(18),
+            Constraint::Length(1),
+            Constraint::Length(11),
+            Constraint::Length(1),
+            Constraint::Length(20),
+            Constraint::Length(1),
             Constraint::Length(16),
-            Constraint::Length(2),
-            Constraint::Length(26),
-            Constraint::Length(2),
-            Constraint::Length(16),
-            Constraint::Length(2),
-            Constraint::Length(28),
-            Constraint::Length(2),
-            Constraint::Min(10),
+            Constraint::Length(1),
+            Constraint::Length(12),
+            Constraint::Length(1),
+            Constraint::Length(10),
+            Constraint::Length(1),
+            Constraint::Min(8),
         ])
         .split(inner_rows[2]);
 
@@ -99,7 +119,43 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         state.comment_index,
     );
 
-    render_people_column(f, cols[8], state);
+    render_column(
+        f,
+        cols[8],
+        "Review",
+        state.section == FilterSection::Review,
+        REVIEW_STATUS_OPTIONS
+            .iter()
+            .map(|v| v.label().to_string())
+            .collect(),
+        state.review_status_index,
+    );
+
+    render_column(
+        f,
+        cols[10],
+        "Approved by",
+        state.section == FilterSection::ApprovedBy,
+        APPROVED_BY_OPTIONS
+            .iter()
+            .map(|v| v.label().to_string())
+            .collect(),
+        state.approved_by_index,
+    );
+
+    render_column(
+        f,
+        cols[12],
+        "Author",
+        state.section == FilterSection::Author,
+        AUTHOR_OPTIONS
+            .iter()
+            .map(|v| v.label().to_string())
+            .collect(),
+        state.author_filter_index,
+    );
+
+    render_people_column(f, cols[14], state);
 }
 
 fn render_column(
@@ -136,23 +192,20 @@ fn render_people_column(f: &mut Frame, area: Rect, state: &FilterModalState) {
     } else {
         Style::default()
     };
-    let mut lines = vec![Line::from(Span::styled("People", header_style))];
-    for (i, (checked, label)) in [(state.reviewer_me, "Reviewer: me"), (state.author_me, "Author: me")]
-        .into_iter()
-        .enumerate()
-    {
-        let is_selected = active && state.toggle_index == i;
-        let prefix = if is_selected { "▶ " } else { "  " };
-        let style = if is_selected {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default()
-        };
-        let checkbox = if checked { "[x]" } else { "[ ]" };
-        lines.push(Line::from(Span::styled(
-            format!("{prefix}{checkbox} {label}"),
+    let is_selected = active;
+    let prefix = if is_selected { "▶ " } else { "  " };
+    let style = if is_selected {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default()
+    };
+    let checkbox = if state.reviewer_me { "[x]" } else { "[ ]" };
+    let lines = vec![
+        Line::from(Span::styled("People", header_style)),
+        Line::from(Span::styled(
+            format!("{prefix}{checkbox} Reviewer: me"),
             style,
-        )));
-    }
+        )),
+    ];
     f.render_widget(Paragraph::new(lines), area);
 }

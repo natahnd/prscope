@@ -31,7 +31,7 @@ pub fn build_filters(
     }
 
     if options.mine && current_user_id.is_some() {
-        filters.author_me = Some(true);
+        filters.author_filter = Some(crate::api::types::AuthorFilter::Me);
         filters.author_id = current_user_id.map(|s| s.to_string());
     } else if let Some(author) = &options.author {
         filters.author = Some(author.clone());
@@ -76,7 +76,7 @@ mod tests {
             ..Default::default()
         };
         let filters = build_filters(&options, Some("user-1")).unwrap();
-        assert_eq!(filters.author_me, Some(true));
+        assert_eq!(filters.author_filter, Some(crate::api::types::AuthorFilter::Me));
         assert_eq!(filters.author_id.as_deref(), Some("user-1"));
     }
 

@@ -1,3 +1,4 @@
+pub mod review_status;
 pub mod open_url;
 pub mod clipboard;
 pub mod comment_activity;
@@ -11,6 +12,7 @@ pub mod pr_list_rows;
 pub mod right_panel_lines;
 pub mod state;
 pub mod text_selection;
+pub mod text_width;
 pub mod ui;
 pub mod update;
 pub mod wrap_text;

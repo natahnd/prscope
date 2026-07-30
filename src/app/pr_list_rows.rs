@@ -143,6 +143,7 @@ mod tests {
             repo_name: repo.into(),
             repository_id: format!("repo-{repo}"),
             author: author.into(),
+            is_author_current_user: false,
             reviewers: vec![],
             target_branch: "main".into(),
             created_at: created_at.into(),

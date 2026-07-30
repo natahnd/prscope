@@ -14,6 +14,7 @@ use super::detail_cache::{DetailCache, PullRequestDetailState};
 use super::filter_modal::FilterModalState;
 use super::layout::{compute_layout_geometry, LayoutGeometry, LayoutOptions, DEFAULT_LEFT_WIDTH_RATIO};
 use super::pr_key::pr_key_for;
+use super::review_status::{matches_approved_by_filter, matches_author_filter, matches_review_status_filter};
 use super::text_selection::SelectionRange;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +253,23 @@ impl App {
                 Some(CommentActivity::Active) => true,
                 Some(CommentActivity::Resolved) => false,
             });
+        }
+
+        if let Some(review_filter) = self.filters.review_status_filter {
+            if review_filter != crate::api::types::ReviewStatusFilter::All {
+                filtered.retain(|pr| matches_review_status_filter(pr, review_filter));
+            }
+        }
+
+        if let Some(approved_by) = self.filters.approved_by_filter {
+            if approved_by != crate::api::types::ApprovedByFilter::All {
+                filtered.retain(|pr| matches_approved_by_filter(pr, approved_by));
+            }
+        }
+
+        let author_filter = self.filters.effective_author_filter();
+        if author_filter != crate::api::types::AuthorFilter::All {
+            filtered.retain(|pr| matches_author_filter(pr, author_filter));
         }
 
         match self.list_layout {

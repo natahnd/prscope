@@ -54,6 +54,108 @@ impl Default for CommentActivityFilter {
     }
 }
 
+/// Client-only filter on aggregate reviewer votes across a PR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewStatusFilter {
+    #[default]
+    All,
+    #[serde(rename = "needs-review")]
+    NeedsReview,
+    Approved,
+    Rejected,
+    #[serde(rename = "waiting-for-author")]
+    WaitingForAuthor,
+}
+
+impl ReviewStatusFilter {
+    pub fn label(self) -> &'static str {
+        match self {
+            ReviewStatusFilter::All => "All PRs",
+            ReviewStatusFilter::NeedsReview => "Needs review",
+            ReviewStatusFilter::Approved => "Approved",
+            ReviewStatusFilter::Rejected => "Rejected",
+            ReviewStatusFilter::WaitingForAuthor => "Waiting for author",
+        }
+    }
+
+    pub fn filter_label(self) -> &'static str {
+        match self {
+            ReviewStatusFilter::All => "all",
+            ReviewStatusFilter::NeedsReview => "needs-review",
+            ReviewStatusFilter::Approved => "approved",
+            ReviewStatusFilter::Rejected => "rejected",
+            ReviewStatusFilter::WaitingForAuthor => "waiting-for-author",
+        }
+    }
+}
+
+/// Client-only filter on whether the signed-in user approved the PR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovedByFilter {
+    #[default]
+    All,
+    Me,
+}
+
+impl ApprovedByFilter {
+    pub fn label(self) -> &'static str {
+        match self {
+            ApprovedByFilter::All => "All",
+            ApprovedByFilter::Me => "Me",
+        }
+    }
+
+    pub fn filter_label(self) -> &'static str {
+        match self {
+            ApprovedByFilter::All => "all",
+            ApprovedByFilter::Me => "me",
+        }
+    }
+}
+
+/// Client-only filter on who authored the PR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthorFilter {
+    #[default]
+    All,
+    Me,
+    #[serde(rename = "not-me")]
+    NotMe,
+}
+
+impl AuthorFilter {
+    pub fn label(self) -> &'static str {
+        match self {
+            AuthorFilter::All => "All",
+            AuthorFilter::Me => "Me",
+            AuthorFilter::NotMe => "Not me",
+        }
+    }
+
+    pub fn filter_label(self) -> &'static str {
+        match self {
+            AuthorFilter::All => "all",
+            AuthorFilter::Me => "me",
+            AuthorFilter::NotMe => "not-me",
+        }
+    }
+}
+
+impl PullRequestFilters {
+    pub fn effective_author_filter(&self) -> AuthorFilter {
+        self.author_filter.unwrap_or_else(|| {
+            if self.author_me.unwrap_or(false) {
+                AuthorFilter::Me
+            } else {
+                AuthorFilter::All
+            }
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderId {
@@ -157,6 +259,9 @@ pub struct AdoReviewer {
     pub is_required: bool,
     #[serde(rename = "isCurrentUser")]
     pub is_current_user: bool,
+    /// True when the reviewer is a team or group (`isContainer` in the API).
+    #[serde(rename = "isTeam", default)]
+    pub is_team: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +276,8 @@ pub struct NormalizedPullRequest {
     #[serde(rename = "repositoryId")]
     pub repository_id: String,
     pub author: String,
+    #[serde(rename = "isAuthorCurrentUser", default)]
+    pub is_author_current_user: bool,
     pub reviewers: Vec<AdoReviewer>,
     #[serde(rename = "targetBranch")]
     pub target_branch: String,
@@ -262,6 +369,15 @@ pub struct PullRequestFilters {
         skip_serializing_if = "Option::is_none"
     )]
     pub active_comments_filter: Option<CommentActivityFilter>,
+    /// Client-only: filters on aggregate reviewer votes for the PR.
+    #[serde(rename = "reviewStatusFilter", skip_serializing_if = "Option::is_none")]
+    pub review_status_filter: Option<ReviewStatusFilter>,
+    /// Client-only: filters to PRs approved by the signed-in user.
+    #[serde(rename = "approvedByFilter", skip_serializing_if = "Option::is_none")]
+    pub approved_by_filter: Option<ApprovedByFilter>,
+    /// Client-only: filters on who authored the PR.
+    #[serde(rename = "authorFilter", skip_serializing_if = "Option::is_none")]
+    pub author_filter: Option<AuthorFilter>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<String>,
 }
@@ -279,6 +395,9 @@ impl Default for PullRequestFilters {
             author_me: None,
             draft_filter: None,
             active_comments_filter: None,
+            review_status_filter: None,
+            approved_by_filter: None,
+            author_filter: None,
             search: None,
         }
     }
@@ -379,6 +498,8 @@ pub struct RawReviewer {
     pub vote: i32,
     #[serde(rename = "isRequired")]
     pub is_required: Option<bool>,
+    #[serde(rename = "isContainer", default)]
+    pub is_container: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

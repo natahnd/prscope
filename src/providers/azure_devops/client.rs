@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 
 use crate::api::types::{
-    AdoReviewer, ApiListResponse, CodeSnippet, CodeSnippetLine, ConnectionData,
+    AdoReviewer, ApiListResponse, AuthorFilter, CodeSnippet, CodeSnippetLine, ConnectionData,
     NormalizedPullRequest, PrComment, PrThread, Project, PullRequestDetail, PullRequestFilters,
     PullRequestStatus, RawPullRequest, RawPullRequestDetail, RawThread, Repository,
 };
@@ -324,6 +324,7 @@ fn normalize_pull_request(
             vote: r.vote,
             is_required: r.is_required.unwrap_or(false),
             is_current_user: current_user_id.map(|id| id == r.id).unwrap_or(false),
+            is_team: r.is_container,
         })
         .collect();
 
@@ -353,6 +354,9 @@ fn normalize_pull_request(
         repo_name,
         repository_id: pr.repository.id,
         author: pr.created_by.display_name,
+        is_author_current_user: current_user_id
+            .map(|id| id == pr.created_by.id)
+            .unwrap_or(false),
         reviewers,
         target_branch,
         created_at: pr.creation_date,
@@ -410,6 +414,12 @@ fn matches_client_filters(pr: &NormalizedPullRequest, filters: &PullRequestFilte
     }
     if filters.reviewer_me.unwrap_or(false) && !pr.reviewers.iter().any(|r| r.is_current_user) {
         return false;
+    }
+    match filters.effective_author_filter() {
+        AuthorFilter::All => {}
+        AuthorFilter::Me if !pr.is_author_current_user => return false,
+        AuthorFilter::NotMe if pr.is_author_current_user => return false,
+        _ => {}
     }
     if let Some(draft_filter) = filters.draft_filter {
         use crate::api::types::DraftFilter;

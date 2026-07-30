@@ -6,6 +6,8 @@ use crate::humanize::{format_distance_to_now, parse_date};
 use super::comment_status::is_resolved_status;
 use super::detail_cache::PullRequestDetailState;
 use super::markdown::{render_markdown_to_lines, StyledLine};
+use super::review_status::{review_vote_symbol, reviewer_detail_name, reviewer_line_style};
+use super::text_width::truncate_to_width;
 use super::wrap_text::strip_html;
 
 pub type RightPanelMode = super::state::RightPanelMode;
@@ -48,6 +50,15 @@ impl ContentLine {
         }
     }
 
+    fn styled(key: impl Into<String>, kind: LineKind, text: impl Into<String>, style: Style) -> Self {
+        ContentLine {
+            key: key.into(),
+            kind,
+            spans: vec![(text.into(), style)],
+            accent: None,
+        }
+    }
+
     pub fn plain_text(&self) -> String {
         self.spans.iter().map(|(t, _)| t.as_str()).collect()
     }
@@ -58,8 +69,8 @@ enum Section {
     File(PrThread),
 }
 
-/// border (top+bottom) + title line + meta line + tab-strip margin + tab-strip line
-pub const CHROME_ROWS: usize = 6;
+/// border (top+bottom) + title + meta + tab-strip line
+pub const CHROME_ROWS: usize = 5;
 /// Rows before the scrollable content starts: everything in CHROME_ROWS except
 /// the bottom border. Shared by rendering and mouse hit-testing/selection so
 /// they can never drift out of sync.
@@ -104,23 +115,30 @@ pub fn build_right_panel_lines(args: BuildRightPanelLinesArgs<'_>) -> Vec<Conten
     }
 
     if mode == RightPanelMode::Description {
+        let pr = pull_request.expect("pull request required for description mode");
+        let mut lines = build_reviewer_lines(pr, content_width);
+        lines.push(ContentLine::plain("reviewers-gap", LineKind::Blank, ""));
+
         let description = detail_state
             .detail
             .as_ref()
             .map(|d| d.description.trim().to_string())
             .unwrap_or_default();
         if description.is_empty() {
-            return vec![ContentLine::plain(
+            lines.push(ContentLine::plain(
                 "empty",
                 LineKind::Empty,
                 "No description provided.",
-            )];
+            ));
+            return lines;
         }
-        return render_markdown_to_lines(&description, content_width)
-            .into_iter()
-            .enumerate()
-            .map(|(i, line)| ContentLine::markdown(format!("d-{i}"), line))
-            .collect();
+        lines.extend(
+            render_markdown_to_lines(&description, content_width)
+                .into_iter()
+                .enumerate()
+                .map(|(i, line)| ContentLine::markdown(format!("d-{i}"), line)),
+        );
+        return lines;
     }
 
     let sections = build_sections(&detail_state.threads, comment_status_filter);
@@ -144,6 +162,52 @@ pub fn build_right_panel_lines(args: BuildRightPanelLinesArgs<'_>) -> Vec<Conten
 /// thread) under the given filter — used for the `Comments (N)` tab label.
 pub fn count_comment_sections(threads: &[PrThread], status_filter: CommentStatusFilter) -> usize {
     build_sections(threads, status_filter).len()
+}
+
+fn build_reviewer_lines(pr: &NormalizedPullRequest, content_width: usize) -> Vec<ContentLine> {
+    let mut lines = vec![ContentLine::plain(
+        "reviewers-h",
+        LineKind::Header,
+        "Reviewers:",
+    )];
+
+    if pr.is_draft {
+        lines.push(ContentLine::styled(
+            "reviewers-none",
+            LineKind::Body,
+            "  (draft — no reviewers)",
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        return lines;
+    }
+
+    if pr.reviewers.is_empty() {
+        lines.push(ContentLine::styled(
+            "reviewers-none",
+            LineKind::Body,
+            "  none",
+            Style::default().add_modifier(Modifier::DIM),
+        ));
+        return lines;
+    }
+
+    for (i, reviewer) in pr.reviewers.iter().enumerate() {
+        let symbol = review_vote_symbol(reviewer.vote);
+        let name = reviewer_detail_name(reviewer);
+        let team_suffix = if reviewer.is_team { " (team)" } else { "" };
+        let text = truncate_to_width(
+            &format!("  - {symbol} {name}{team_suffix}"),
+            content_width,
+        );
+        lines.push(ContentLine::styled(
+            format!("reviewer-{i}"),
+            LineKind::Body,
+            text,
+            reviewer_line_style(reviewer.vote, reviewer.is_current_user),
+        ));
+    }
+
+    lines
 }
 
 fn build_sections(threads: &[PrThread], status_filter: CommentStatusFilter) -> Vec<Section> {

@@ -10,6 +10,7 @@ use crate::app::right_panel_lines::{
 };
 use crate::app::state::{App, CommentStatusFilter, PanelFocus, RightPanelMode};
 use crate::app::text_selection::{normalize_selection, row_highlight_range};
+use crate::app::text_width::truncate_to_width;
 use crate::app::update::current_right_panel_lines;
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
@@ -31,8 +32,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(block, area);
 
     let content_width = right_panel_content_width(area.width);
-    let title_text = truncate_chars(&format!("#{} {}", pr.id, pr.title), content_width);
-    let meta_text = truncate_chars(
+    let title_text = truncate_to_width(&format!("#{} {}", pr.id, pr.title), content_width);
+    let meta_text = truncate_to_width(
         &format!(
             "{} · draft: {} · conflicts: {} · status: {}",
             pr.target_branch,
@@ -46,7 +47,6 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -88,7 +88,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         lines.len(),
         content_height,
     );
-    f.render_widget(Paragraph::new(tab_line), rows[3]);
+    f.render_widget(Paragraph::new(tab_line), rows[2]);
 
     let selection = app.right_selection.map(normalize_selection);
     let mut content_lines: Vec<Line> = Vec::new();
@@ -97,7 +97,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         let highlight = row_highlight_range(absolute_row, selection.as_ref());
         content_lines.push(render_content_line(line, highlight, content_width));
     }
-    f.render_widget(Paragraph::new(content_lines), rows[4]);
+    f.render_widget(Paragraph::new(content_lines), rows[3]);
 }
 
 fn render_placeholder(f: &mut Frame, area: Rect) {
@@ -287,19 +287,4 @@ fn collapse_runs(chars: &[(char, Style)]) -> Vec<Span<'static>> {
         spans.push(Span::raw(" "));
     }
     spans
-}
-
-fn truncate_chars(text: &str, max_width: usize) -> String {
-    if max_width == 0 {
-        return String::new();
-    }
-    let count = text.chars().count();
-    if count <= max_width {
-        return text.to_string();
-    }
-    if max_width == 1 {
-        return "…".to_string();
-    }
-    let truncated: String = text.chars().take(max_width - 1).collect();
-    format!("{truncated}…")
 }
