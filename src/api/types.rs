@@ -582,6 +582,118 @@ pub struct RawThread {
     pub comments: Vec<RawComment>,
 }
 
+/// Change kind for one file in a pull request iteration, parsed from Azure
+/// DevOps's comma-joined `changeType` string (e.g. `"edit, rename"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrFileChangeType {
+    Add,
+    Edit,
+    Delete,
+    Rename,
+    Other,
+}
+
+impl PrFileChangeType {
+    /// Priority order (most to least specific) when ADO reports more than
+    /// one change kind for a file, e.g. a rename that also edited content.
+    pub fn parse(raw: &str) -> Self {
+        let lower = raw.to_lowercase();
+        let parts: Vec<&str> = lower.split(',').map(|p| p.trim()).collect();
+        if parts.contains(&"delete") {
+            PrFileChangeType::Delete
+        } else if parts.contains(&"add") {
+            PrFileChangeType::Add
+        } else if parts.contains(&"rename") {
+            PrFileChangeType::Rename
+        } else if parts.contains(&"edit") {
+            PrFileChangeType::Edit
+        } else {
+            PrFileChangeType::Other
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            PrFileChangeType::Add => "A",
+            PrFileChangeType::Edit => "M",
+            PrFileChangeType::Delete => "D",
+            PrFileChangeType::Rename => "R",
+            PrFileChangeType::Other => "?",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PrFileChange {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub change_type: PrFileChangeType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineKind {
+    Context,
+    Added,
+    Removed,
+    HunkHeader,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    pub old_line_no: Option<i64>,
+    pub new_line_no: Option<i64>,
+    pub content: String,
+    pub comments: Vec<PrComment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileDiff {
+    pub file: PrFileChange,
+    pub lines: Vec<DiffLine>,
+    pub additions: usize,
+    pub deletions: usize,
+    pub is_binary: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RawGitCommitRef {
+    #[serde(rename = "commitId")]
+    pub commit_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RawPullRequestIteration {
+    #[allow(dead_code)]
+    pub id: i64,
+    #[serde(rename = "sourceRefCommit")]
+    pub source_ref_commit: Option<RawGitCommitRef>,
+    #[serde(rename = "commonRefCommit")]
+    pub common_ref_commit: Option<RawGitCommitRef>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RawChangeItem {
+    pub path: String,
+    #[serde(rename = "isFolder", default)]
+    pub is_folder: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RawChangeEntry {
+    pub item: RawChangeItem,
+    #[serde(rename = "changeType")]
+    pub change_type: String,
+    #[serde(rename = "sourceServerItem", default)]
+    pub source_server_item: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RawIterationChanges {
+    #[serde(rename = "changeEntries")]
+    pub change_entries: Vec<RawChangeEntry>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppScreen {
     ProviderSelect,
@@ -617,6 +729,22 @@ mod tests {
     fn provider_id_serializes_kebab_case() {
         let json = serde_json::to_string(&ProviderId::AzureDevops).unwrap();
         assert_eq!(json, "\"azure-devops\"");
+    }
+
+    #[test]
+    fn file_change_type_parses_simple_kinds() {
+        assert_eq!(PrFileChangeType::parse("add"), PrFileChangeType::Add);
+        assert_eq!(PrFileChangeType::parse("edit"), PrFileChangeType::Edit);
+        assert_eq!(PrFileChangeType::parse("delete"), PrFileChangeType::Delete);
+        assert_eq!(PrFileChangeType::parse("rename"), PrFileChangeType::Rename);
+        assert_eq!(PrFileChangeType::parse("encoding"), PrFileChangeType::Other);
+    }
+
+    #[test]
+    fn file_change_type_parses_combined_kinds() {
+        assert_eq!(PrFileChangeType::parse("edit, rename"), PrFileChangeType::Rename);
+        assert_eq!(PrFileChangeType::parse("rename, edit"), PrFileChangeType::Rename);
+        assert_eq!(PrFileChangeType::parse("delete, edit"), PrFileChangeType::Delete);
     }
 
     #[test]

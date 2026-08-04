@@ -6,6 +6,13 @@ use crate::app::open_url::open_url;
 use crate::app::clipboard::build_osc52_copy_sequence;
 use crate::app::comment_activity::spawn_missing_comment_activity;
 use crate::app::detail_cache::spawn_detail_fetch;
+use crate::app::file_diff_cache::{file_diff_key, spawn_file_diff_fetch, FileDiffState};
+use crate::app::file_list_rows::resolve_file_list_click_row;
+use crate::app::files_panel::{
+    build_combined_file_diff_view, file_index_at_scroll, next_hunk_scroll, prev_hunk_scroll,
+    scroll_offset_for_file, CombinedFileDiffView, FilesPanelFocus, FilesPanelLayout,
+    FILES_DIVIDER_WIDTH, MAX_FILES_LIST_RATIO, MIN_FILES_LIST_RATIO,
+};
 use crate::app::filter_modal::{filter_modal_state_from_filters, modal_state_to_filters};
 use crate::app::layout::{MAX_LEFT_WIDTH_RATIO, MIN_LEFT_WIDTH_RATIO};
 use crate::app::pr_list_rows::resolve_list_click_row;
@@ -22,6 +29,9 @@ use crate::providers::registry;
 use super::runner::{load_projects, load_pull_requests, spawn_ado_org_detect};
 
 pub fn current_right_panel_lines(app: &App) -> Vec<ContentLine> {
+    if app.right_mode == RightPanelMode::Files {
+        return combined_file_diff_view(app).lines;
+    }
     let displayed = app.displayed_prs();
     let safe_index = app.safe_selected_index(displayed.len());
     let selected_pr = displayed.get(safe_index).copied();
@@ -34,6 +44,145 @@ pub fn current_right_panel_lines(app: &App) -> Vec<ContentLine> {
         comment_status_filter: app.comment_status_filter,
         content_width,
     })
+}
+
+fn combined_file_diff_view(app: &App) -> CombinedFileDiffView {
+    let layout = FilesPanelLayout::compute(app);
+    let pr_key = app.current_detail_key.as_deref().unwrap_or("");
+    build_combined_file_diff_view(
+        &app.detail_state.files,
+        &app.file_diffs,
+        pr_key,
+        app.diff_view_mode,
+        layout.diff_text_width,
+    )
+}
+
+/// Total content rows available below the tab strip in the detail panel.
+pub fn panel_content_height(app: &App) -> usize {
+    FilesPanelLayout::compute(app).content_height
+}
+
+fn sync_file_list_scroll(app: &mut App) {
+    let layout = FilesPanelLayout::compute(app);
+    let available = layout.list_inner_height;
+    let selected = app.selected_file_index;
+    app.file_list_scroll = if selected < app.file_list_scroll {
+        selected
+    } else if selected >= app.file_list_scroll + available {
+        selected.saturating_sub(available.saturating_sub(1))
+    } else {
+        app.file_list_scroll
+    };
+}
+
+fn sync_file_selection_from_scroll(app: &mut App) {
+    let view = combined_file_diff_view(app);
+    let idx = file_index_at_scroll(&view.sections, app.file_diff_scroll);
+    if idx != app.selected_file_index {
+        app.selected_file_index = idx;
+        sync_file_list_scroll(app);
+    }
+}
+
+fn diff_max_scroll(app: &App) -> usize {
+    let layout = FilesPanelLayout::compute(app);
+    let view = combined_file_diff_view(app);
+    view.lines.len().saturating_sub(layout.diff_inner_height)
+}
+
+fn scroll_diff_by(app: &mut App, delta: i64, tx: &UnboundedSender<AppEvent>) {
+    let max_scroll = diff_max_scroll(app);
+    app.file_diff_scroll =
+        (app.file_diff_scroll as i64 + delta).clamp(0, max_scroll as i64) as usize;
+    sync_file_selection_from_scroll(app);
+    ensure_file_diffs_through(app, app.selected_file_index + 2, tx);
+}
+
+fn jump_to_file(app: &mut App, file_index: usize, tx: &UnboundedSender<AppEvent>) {
+    if app.detail_state.files.is_empty() {
+        return;
+    }
+    let file_index = file_index.min(app.detail_state.files.len() - 1);
+    app.selected_file_index = file_index;
+    let view = combined_file_diff_view(app);
+    app.file_diff_scroll = scroll_offset_for_file(&view.sections, file_index);
+    sync_file_list_scroll(app);
+    ensure_file_diffs_through(app, file_index + 2, tx);
+}
+
+fn jump_to_hunk(app: &mut App, hunk_line: usize, tx: &UnboundedSender<AppEvent>) {
+    app.files_panel_focus = FilesPanelFocus::Diff;
+    app.file_diff_scroll = hunk_line.min(diff_max_scroll(app));
+    sync_file_selection_from_scroll(app);
+    ensure_file_diffs_through(app, app.selected_file_index + 2, tx);
+}
+
+/// Ensures diffs are loaded (or loading) for every file up through `through_index`.
+pub fn ensure_file_diffs_through(
+    app: &mut App,
+    through_index: usize,
+    tx: &UnboundedSender<AppEvent>,
+) {
+    if app.right_mode != RightPanelMode::Files {
+        return;
+    }
+    if app.current_detail_key.is_none() || app.detail_state.files.is_empty() {
+        return;
+    }
+    let through = through_index.min(app.detail_state.files.len() - 1);
+    for idx in 0..=through {
+        ensure_file_diff_insert_and_spawn(app, idx, tx);
+    }
+}
+
+/// Ensures the diff for the currently selected file (and a few ahead) is
+/// either cached or being fetched.
+pub fn ensure_selected_file_diff(app: &mut App, tx: &UnboundedSender<AppEvent>) {
+    ensure_file_diffs_through(app, app.selected_file_index + 2, tx);
+}
+
+fn ensure_file_diff_insert_and_spawn(
+    app: &mut App,
+    idx: usize,
+    tx: &UnboundedSender<AppEvent>,
+) {
+    let Some(pr_key) = app.current_detail_key.clone() else {
+        return;
+    };
+    let file = app.detail_state.files[idx].clone();
+    let key = file_diff_key(&pr_key, &file.path);
+    if app.file_diffs.contains_key(&key) {
+        return;
+    }
+    let (Some(client), Some(project)) = (app.client.clone(), app.selected_project.clone()) else {
+        return;
+    };
+    let displayed = app.displayed_prs();
+    let safe_index = app.safe_selected_index(displayed.len());
+    let Some(pr) = displayed.get(safe_index) else {
+        return;
+    };
+    let repository_id = pr.repository_id.clone();
+    let pull_request_id = pr.id;
+    app.file_diffs.insert(
+        key.clone(),
+        FileDiffState {
+            diff: None,
+            loading: true,
+            error: None,
+        },
+    );
+    spawn_file_diff_fetch(
+        client,
+        project,
+        repository_id,
+        pull_request_id,
+        file,
+        app.detail_state.threads.clone(),
+        key,
+        tx.clone(),
+    );
 }
 
 /// Keeps `detail_state`/`detail_cache` in sync with whatever PR is currently
@@ -62,9 +211,13 @@ pub fn sync_detail_state(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     app.description_scroll = 0;
     app.comments_scroll = 0;
     app.right_selection = None;
+    app.selected_file_index = 0;
+    app.file_diff_scroll = 0;
+    app.file_list_scroll = 0;
 
     if let Some(cached) = app.detail_cache.get(&key) {
         app.detail_state = cached.clone();
+        ensure_selected_file_diff(app, tx);
         return;
     }
 
@@ -313,36 +466,62 @@ fn handle_pr_list_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<AppEven
             };
         }
         KeyCode::Up => {
-            move_selection_up(app);
+            move_selection_up(app, tx);
             sync_detail_state(app, tx);
         }
         KeyCode::Char('k') => {
-            move_selection_up(app);
+            move_selection_up(app, tx);
             sync_detail_state(app, tx);
         }
         KeyCode::Down => {
-            move_selection_down(app, displayed_len);
+            move_selection_down(app, displayed_len, tx);
             sync_detail_state(app, tx);
         }
         KeyCode::Char('j') => {
-            move_selection_down(app, displayed_len);
+            move_selection_down(app, displayed_len, tx);
             sync_detail_state(app, tx);
         }
-        KeyCode::Left if app.panel_focus == PanelFocus::Detail => {
-            app.right_mode = RightPanelMode::Description;
-            app.right_selection = None;
+        KeyCode::PageUp if app.panel_focus == PanelFocus::Detail && app.right_mode == RightPanelMode::Files => {
+            let page = panel_content_height(app);
+            scroll_diff_by(app, -(page as i64), tx);
         }
-        KeyCode::Char('h') if app.panel_focus == PanelFocus::Detail => {
-            app.right_mode = RightPanelMode::Description;
-            app.right_selection = None;
+        KeyCode::PageDown if app.panel_focus == PanelFocus::Detail && app.right_mode == RightPanelMode::Files => {
+            let page = panel_content_height(app);
+            scroll_diff_by(app, page as i64, tx);
         }
-        KeyCode::Right if app.panel_focus == PanelFocus::Detail => {
-            app.right_mode = RightPanelMode::Comments;
-            app.right_selection = None;
+        KeyCode::Char('v')
+            if app.panel_focus == PanelFocus::Detail && app.right_mode == RightPanelMode::Files =>
+        {
+            app.diff_view_mode = app.diff_view_mode.toggle();
+            let view = combined_file_diff_view(app);
+            app.file_diff_scroll =
+                scroll_offset_for_file(&view.sections, app.selected_file_index);
         }
-        KeyCode::Char('l') if app.panel_focus == PanelFocus::Detail => {
-            app.right_mode = RightPanelMode::Comments;
+        KeyCode::Char(']')
+            if app.panel_focus == PanelFocus::Detail && app.right_mode == RightPanelMode::Files =>
+        {
+            let view = combined_file_diff_view(app);
+            if let Some(offset) = next_hunk_scroll(&view.hunk_lines, app.file_diff_scroll) {
+                jump_to_hunk(app, offset, tx);
+            }
+        }
+        KeyCode::Char('[')
+            if app.panel_focus == PanelFocus::Detail && app.right_mode == RightPanelMode::Files =>
+        {
+            let view = combined_file_diff_view(app);
+            if let Some(offset) = prev_hunk_scroll(&view.hunk_lines, app.file_diff_scroll) {
+                jump_to_hunk(app, offset, tx);
+            }
+        }
+        KeyCode::Left | KeyCode::Char('h') if app.panel_focus == PanelFocus::Detail => {
+            app.right_mode = app.right_mode.prev();
             app.right_selection = None;
+            ensure_selected_file_diff(app, tx);
+        }
+        KeyCode::Right | KeyCode::Char('l') if app.panel_focus == PanelFocus::Detail => {
+            app.right_mode = app.right_mode.next();
+            app.right_selection = None;
+            ensure_selected_file_diff(app, tx);
         }
         KeyCode::Char('s')
             if app.panel_focus == PanelFocus::Detail && app.right_mode == RightPanelMode::Comments =>
@@ -419,26 +598,51 @@ fn handle_pr_list_key(app: &mut App, key: KeyEvent, tx: &UnboundedSender<AppEven
     }
 }
 
-fn move_selection_up(app: &mut App) {
+fn move_selection_up(app: &mut App, tx: &UnboundedSender<AppEvent>) {
     if app.panel_focus == PanelFocus::Detail {
-        if app.right_mode == RightPanelMode::Description {
-            app.description_scroll = app.description_scroll.saturating_sub(1);
-        } else {
-            app.comments_scroll = app.comments_scroll.saturating_sub(1);
+        match app.right_mode {
+            RightPanelMode::Description => {
+                app.description_scroll = app.description_scroll.saturating_sub(1);
+            }
+            RightPanelMode::Comments => {
+                app.comments_scroll = app.comments_scroll.saturating_sub(1);
+            }
+            RightPanelMode::Files => match app.files_panel_focus {
+                FilesPanelFocus::Diff => scroll_diff_by(app, -1, tx),
+                FilesPanelFocus::FileList => {
+                    if app.selected_file_index > 0 {
+                        jump_to_file(app, app.selected_file_index - 1, tx);
+                    }
+                }
+            },
         }
     } else {
         app.selected_index = app.selected_index.saturating_sub(1);
     }
 }
 
-fn move_selection_down(app: &mut App, displayed_len: usize) {
+fn move_selection_down(app: &mut App, displayed_len: usize, tx: &UnboundedSender<AppEvent>) {
     if app.panel_focus == PanelFocus::Detail {
-        let max_scroll = right_panel_max_scroll(app);
-        app.right_max_scroll = max_scroll;
-        if app.right_mode == RightPanelMode::Description {
-            app.description_scroll = (app.description_scroll + 1).min(max_scroll);
-        } else {
-            app.comments_scroll = (app.comments_scroll + 1).min(max_scroll);
+        match app.right_mode {
+            RightPanelMode::Description => {
+                let max_scroll = right_panel_max_scroll(app);
+                app.right_max_scroll = max_scroll;
+                app.description_scroll = (app.description_scroll + 1).min(max_scroll);
+            }
+            RightPanelMode::Comments => {
+                let max_scroll = right_panel_max_scroll(app);
+                app.right_max_scroll = max_scroll;
+                app.comments_scroll = (app.comments_scroll + 1).min(max_scroll);
+            }
+            RightPanelMode::Files => match app.files_panel_focus {
+                FilesPanelFocus::Diff => scroll_diff_by(app, 1, tx),
+                FilesPanelFocus::FileList => {
+                    let max_index = app.detail_state.files.len().saturating_sub(1);
+                    if app.selected_file_index < max_index {
+                        jump_to_file(app, app.selected_file_index + 1, tx);
+                    }
+                }
+            },
         }
     } else {
         let max_index = displayed_len.saturating_sub(1);
@@ -451,8 +655,7 @@ fn move_selection_down(app: &mut App, displayed_len: usize) {
 /// keyboard/mouse scroll clamping never lags behind what's actually on
 /// screen (see `app.right_max_scroll` for why this can't just be cached).
 fn right_panel_max_scroll(app: &App) -> usize {
-    let geometry = app.geometry();
-    let content_height = (geometry.panel_height as i64 - CHROME_ROWS as i64).max(1) as usize;
+    let content_height = panel_content_height(app);
     let lines = current_right_panel_lines(app);
     lines.len().saturating_sub(content_height)
 }
@@ -567,10 +770,10 @@ fn resolve_right_panel_point(
     let geometry = app.geometry();
     let content_width = right_panel_content_width(geometry.right_width);
     let content_height = (geometry.panel_height as i64 - CHROME_ROWS as i64).max(1) as usize;
-    let current_scroll = if app.right_mode == RightPanelMode::Description {
-        app.description_scroll
-    } else {
-        app.comments_scroll
+    let current_scroll = match app.right_mode {
+        RightPanelMode::Description => app.description_scroll,
+        RightPanelMode::Comments => app.comments_scroll,
+        RightPanelMode::Files => app.file_diff_scroll,
     };
     let visible = get_visible_right_panel_lines(lines, current_scroll, content_height);
     let clamped_scroll = visible.clamped_scroll;
@@ -608,6 +811,18 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
             app.left_width_ratio = ratio.clamp(MIN_LEFT_WIDTH_RATIO, MAX_LEFT_WIDTH_RATIO);
             return;
         }
+        if app.dragging_files_divider {
+            let geometry = app.geometry();
+            let detail_content_left = geometry.left_width as i64 + 1;
+            let available = geometry.right_width as i64 - 2 - FILES_DIVIDER_WIDTH as i64;
+            if available > 0 {
+                let list_w = (x - detail_content_left).clamp(0, available);
+                app.files_list_width_ratio =
+                    (list_w as f64 / available as f64)
+                        .clamp(MIN_FILES_LIST_RATIO, MAX_FILES_LIST_RATIO);
+            }
+            return;
+        }
         if app.dragging_selection {
             if let Some(current) = app.right_selection {
                 let lines = current_right_panel_lines(app);
@@ -625,6 +840,7 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
 
     if action == Action::Up {
         app.dragging_divider = false;
+        app.dragging_files_divider = false;
         if app.dragging_selection {
             app.dragging_selection = false;
             let moved = app
@@ -649,6 +865,19 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
             let max_index = displayed_len.saturating_sub(1) as i64;
             app.selected_index = (app.selected_index as i64 + delta).clamp(0, max_index.max(0)) as usize;
             sync_detail_state(app, tx);
+        } else if app.right_mode == RightPanelMode::Files {
+            let layout = FilesPanelLayout::compute(app);
+            if layout.is_in_list_card(x) {
+                let max_scroll = app
+                    .detail_state
+                    .files
+                    .len()
+                    .saturating_sub(layout.list_inner_height);
+                app.file_list_scroll =
+                    (app.file_list_scroll as i64 + delta).clamp(0, max_scroll as i64) as usize;
+            } else if layout.is_in_diff_card(x) {
+                scroll_diff_by(app, delta, tx);
+            }
         } else {
             let max_scroll = right_panel_max_scroll(app);
             app.right_max_scroll = max_scroll;
@@ -674,6 +903,14 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
         return;
     }
 
+    if app.right_mode == RightPanelMode::Files && x >= geometry.left_width as i64 {
+        let layout = FilesPanelLayout::compute(app);
+        if layout.is_on_divider(x) {
+            app.dragging_files_divider = true;
+            return;
+        }
+    }
+
     if x < geometry.left_width as i64 {
         app.panel_focus = PanelFocus::List;
         let local_row = y - geometry.reserved_top as i64;
@@ -693,16 +930,48 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, tx: &UnboundedSender<AppEv
     } else {
         app.panel_focus = PanelFocus::Detail;
         if button == Button::Left {
-            let lines = current_right_panel_lines(app);
-            let point = resolve_right_panel_point(app, &lines, x, y, true);
-            if let Some(point) = point {
-                app.right_selection = Some(SelectionRange {
-                    anchor: point,
-                    focus: point,
-                });
-                app.dragging_selection = true;
+            if app.right_mode == RightPanelMode::Files {
+                let layout = FilesPanelLayout::compute(app);
+                if layout.is_in_list_card(x) {
+                    app.files_panel_focus = FilesPanelFocus::FileList;
+                    if let Some(local_row) = files_list_local_row(app, y) {
+                        if let Some(idx) = resolve_file_list_click_row(
+                            &app.detail_state.files,
+                            app.selected_file_index,
+                            app.file_list_scroll,
+                            local_row,
+                            layout.list_inner_height,
+                        ) {
+                            jump_to_file(app, idx, tx);
+                        }
+                    }
+                } else if layout.is_in_diff_card(x) {
+                    app.files_panel_focus = FilesPanelFocus::Diff;
+                }
+            } else {
+                let lines = current_right_panel_lines(app);
+                let point = resolve_right_panel_point(app, &lines, x, y, true);
+                if let Some(point) = point {
+                    app.right_selection = Some(SelectionRange {
+                        anchor: point,
+                        focus: point,
+                    });
+                    app.dragging_selection = true;
+                }
             }
         }
+    }
+}
+
+/// Row within the file-list card's scrollable content, 0-based.
+fn files_list_local_row(app: &App, y: i64) -> Option<i64> {
+    let geometry = app.geometry();
+    // Below tab strip + file-list card top border (title shares that row).
+    let row = y - geometry.reserved_top as i64 - CONTENT_TOP_ROWS as i64 - 1;
+    if row < 0 {
+        None
+    } else {
+        Some(row)
     }
 }
 

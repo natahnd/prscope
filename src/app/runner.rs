@@ -288,10 +288,14 @@ fn handle_app_event(app: &mut App, event: AppEvent, tx: &UnboundedSender<AppEven
             app.detail_cache.insert(key.clone(), state.clone());
             if app.current_detail_key.as_deref() == Some(key.as_str()) {
                 app.detail_state = state;
+                super::update::ensure_selected_file_diff(app, tx);
             }
         }
         AppEvent::CommentActivityLoaded { key, activity } => {
             app.comment_activity.insert(key, activity);
+        }
+        AppEvent::FileDiffLoaded { key, state } => {
+            app.file_diffs.insert(key, state);
         }
     }
 }

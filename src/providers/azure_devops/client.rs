@@ -4,14 +4,18 @@ use serde::de::DeserializeOwned;
 
 use crate::api::types::{
     AdoReviewer, ApiListResponse, AuthorFilter, CodeSnippet, CodeSnippetLine, ConnectionData,
-    NormalizedPullRequest, PrComment, PrThread, Project, PullRequestDetail, PullRequestFilters,
-    PullRequestStatus, RawPullRequest, RawPullRequestDetail, RawThread, Repository,
+    FileDiff, NormalizedPullRequest, PrComment, PrFileChange, PrThread, Project,
+    PullRequestDetail, PullRequestFilters, PullRequestStatus, RawIterationChanges,
+    RawPullRequest, RawPullRequestDetail, RawPullRequestIteration, RawThread, Repository,
 };
+use crate::diffing::build_file_diff;
 use crate::providers::{CurrentUser, ProviderClient};
 
 const API_VERSION: &str = "7.0";
 /// connectionData is preview-only; stable 7.x returns HTTP 400 without -preview.
 const CONNECTION_DATA_API_VERSION: &str = "7.0-preview.1";
+/// Iteration `changes` is only available under the 7.1 surface.
+const ITERATION_CHANGES_API_VERSION: &str = "7.1";
 
 pub struct AzureDevOpsClient {
     token: String,
@@ -85,6 +89,51 @@ impl AzureDevOpsClient {
             CONNECTION_DATA_API_VERSION
         );
         self.fetch_json(&url).await
+    }
+
+    /// Azure DevOps has no single endpoint for line-level PR diffs — the
+    /// last iteration's commit pair (merge-base vs source) is the anchor
+    /// both the file list and the per-file diff are built from.
+    async fn get_last_iteration(
+        &self,
+        project: &str,
+        repository_id: &str,
+        pull_request_id: i64,
+    ) -> Result<RawPullRequestIteration> {
+        let url = format!(
+            "{}/_apis/git/repositories/{}/pullrequests/{}/iterations?api-version={}",
+            self.base_url(Some(project)),
+            repository_id,
+            pull_request_id,
+            API_VERSION
+        );
+        let data: ApiListResponse<RawPullRequestIteration> = self.fetch_json(&url).await?;
+        data.value
+            .into_iter()
+            .last()
+            .ok_or_else(|| anyhow!("pull request has no iterations"))
+    }
+
+    async fn fetch_item_text(
+        &self,
+        project: &str,
+        repository_id: &str,
+        path: &str,
+        commit_id: &str,
+    ) -> Result<String> {
+        let qs = format!(
+            "path={}&versionDescriptor.version={}&versionDescriptor.versionType=commit&api-version={}&$format=text",
+            urlencoding::encode(path),
+            urlencoding::encode(commit_id),
+            API_VERSION
+        );
+        let url = format!(
+            "{}/_apis/git/repositories/{}/items?{}",
+            self.base_url(Some(project)),
+            repository_id,
+            qs
+        );
+        self.fetch_text(&url).await
     }
 }
 
@@ -297,6 +346,83 @@ impl ProviderClient for AzureDevOpsClient {
         .await;
 
         Ok(result.ok())
+    }
+
+    async fn list_pull_request_file_changes(
+        &self,
+        project: &str,
+        repository_id: &str,
+        pull_request_id: i64,
+    ) -> Result<Vec<PrFileChange>> {
+        let iteration = self
+            .get_last_iteration(project, repository_id, pull_request_id)
+            .await?;
+        let url = format!(
+            "{}/_apis/git/repositories/{}/pullrequests/{}/iterations/{}/changes?api-version={}",
+            self.base_url(Some(project)),
+            repository_id,
+            pull_request_id,
+            iteration.id,
+            ITERATION_CHANGES_API_VERSION
+        );
+        let data: RawIterationChanges = self.fetch_json(&url).await?;
+        Ok(data
+            .change_entries
+            .into_iter()
+            .filter(|entry| !entry.item.is_folder)
+            .map(|entry| {
+                let change_type = crate::api::types::PrFileChangeType::parse(&entry.change_type);
+                let old_path = if change_type == crate::api::types::PrFileChangeType::Rename {
+                    entry.source_server_item.clone()
+                } else {
+                    None
+                };
+                PrFileChange {
+                    path: entry.item.path,
+                    old_path,
+                    change_type,
+                }
+            })
+            .collect())
+    }
+
+    async fn get_pull_request_file_diff(
+        &self,
+        project: &str,
+        repository_id: &str,
+        pull_request_id: i64,
+        file: &PrFileChange,
+    ) -> Result<FileDiff> {
+        use crate::api::types::PrFileChangeType;
+
+        let iteration = self
+            .get_last_iteration(project, repository_id, pull_request_id)
+            .await?;
+        let new_commit = iteration.source_ref_commit.map(|c| c.commit_id);
+        let old_commit = iteration.common_ref_commit.map(|c| c.commit_id);
+
+        let new_text = if file.change_type == PrFileChangeType::Delete {
+            String::new()
+        } else if let Some(commit) = &new_commit {
+            self.fetch_item_text(project, repository_id, &file.path, commit)
+                .await
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        let old_path = file.old_path.as_deref().unwrap_or(&file.path);
+        let old_text = if file.change_type == PrFileChangeType::Add {
+            String::new()
+        } else if let Some(commit) = &old_commit {
+            self.fetch_item_text(project, repository_id, old_path, commit)
+                .await
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        Ok(build_file_diff(file.clone(), &old_text, &new_text))
     }
 }
 

@@ -4,13 +4,16 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 use ratatui::Frame;
 
+use crate::api::types::PrFileChangeType;
+use crate::app::file_diff_cache::file_diff_key;
+use crate::app::files_panel::{FilesPanelFocus, FilesPanelLayout, FILES_DIVIDER_WIDTH};
 use crate::app::right_panel_lines::{
     count_comment_sections, get_visible_right_panel_lines, line_style_for_kind,
     right_panel_content_width, ContentLine, LineKind, CHROME_ROWS,
 };
 use crate::app::state::{App, CommentStatusFilter, PanelFocus, RightPanelMode};
 use crate::app::text_selection::{normalize_selection, row_highlight_range};
-use crate::app::text_width::truncate_to_width;
+use crate::app::text_width::{display_width, truncate_to_width};
 use crate::app::update::current_right_panel_lines;
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
@@ -69,6 +72,45 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         rows[1],
     );
 
+    let sections_count = count_comment_sections(&app.detail_state.threads, app.comment_status_filter);
+    let files_count = app.detail_state.files.len();
+
+    if app.right_mode == RightPanelMode::Files {
+        let layout = FilesPanelLayout::compute(app);
+        let diff_lines = current_right_panel_lines(app);
+        let visible = get_visible_right_panel_lines(
+            &diff_lines,
+            app.file_diff_scroll,
+            layout.diff_inner_height,
+        );
+
+        let tab_line = build_tab_line(
+            app,
+            sections_count,
+            files_count,
+            content_width,
+            visible.max_scroll,
+            visible.clamped_scroll,
+            diff_lines.len(),
+            layout.diff_inner_height,
+        );
+        f.render_widget(Paragraph::new(tab_line), rows[2]);
+
+        let split = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(layout.list_card_width),
+                Constraint::Length(FILES_DIVIDER_WIDTH),
+                Constraint::Length(layout.diff_card_width),
+            ])
+            .split(rows[3]);
+
+        render_file_list_card(f, split[0], app, &layout, focused);
+        render_files_divider(f, split[1], app);
+        render_diff_card(f, split[2], app, &visible, &layout, focused);
+        return;
+    }
+
     let lines = current_right_panel_lines(app);
     let content_height = (area.height as i64 - CHROME_ROWS as i64).max(1) as usize;
     let current_scroll = if app.right_mode == RightPanelMode::Description {
@@ -78,10 +120,10 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     };
     let visible = get_visible_right_panel_lines(&lines, current_scroll, content_height);
 
-    let sections_count = count_comment_sections(&app.detail_state.threads, app.comment_status_filter);
     let tab_line = build_tab_line(
         app,
         sections_count,
+        files_count,
         content_width,
         visible.max_scroll,
         visible.clamped_scroll,
@@ -98,6 +140,169 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         content_lines.push(render_content_line(line, highlight, content_width));
     }
     f.render_widget(Paragraph::new(content_lines), rows[3]);
+}
+
+fn file_change_color(change_type: PrFileChangeType) -> Color {
+    match change_type {
+        PrFileChangeType::Add => Color::Green,
+        PrFileChangeType::Edit => Color::Yellow,
+        PrFileChangeType::Delete => Color::Red,
+        PrFileChangeType::Rename => Color::Cyan,
+        PrFileChangeType::Other => Color::Gray,
+    }
+}
+
+fn render_file_list_card(
+    f: &mut Frame,
+    area: Rect,
+    app: &App,
+    layout: &FilesPanelLayout,
+    detail_focused: bool,
+) {
+    let list_focused =
+        detail_focused && app.files_panel_focus == FilesPanelFocus::FileList;
+    let border_color = if list_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+    let block = Block::default()
+        .title(" Files ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(border_color))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let width = layout.list_text_width;
+    let files = &app.detail_state.files;
+    if files.is_empty() {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "No files",
+                Style::default().add_modifier(Modifier::DIM),
+            ))),
+            inner,
+        );
+        return;
+    }
+
+    let available_rows = layout.list_inner_height;
+    let selected = app.selected_file_index.min(files.len() - 1);
+    let start = file_list_scroll_start(app.file_list_scroll, selected, available_rows);
+
+    let mut lines: Vec<Line> = Vec::new();
+    for (idx, file) in files
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(available_rows)
+    {
+        lines.push(render_file_row(file, idx, selected, app, width));
+    }
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn file_list_scroll_start(scroll: usize, selected: usize, available_rows: usize) -> usize {
+    if selected < scroll {
+        selected
+    } else if selected >= scroll + available_rows {
+        selected.saturating_sub(available_rows.saturating_sub(1))
+    } else {
+        scroll
+    }
+}
+
+fn render_file_row(
+    file: &crate::api::types::PrFileChange,
+    idx: usize,
+    selected: usize,
+    app: &App,
+    width: usize,
+) -> Line<'static> {
+    let is_selected = idx == selected;
+    let prefix = if is_selected { "▶" } else { " " };
+    let icon = file.change_type.icon();
+    let color = file_change_color(file.change_type);
+
+    let counts = app
+        .current_detail_key
+        .as_ref()
+        .and_then(|pr_key| {
+            app.file_diffs
+                .get(&file_diff_key(pr_key, &file.path))
+        })
+        .and_then(|state| state.diff.as_ref())
+        .map(|diff| format!(" +{} -{}", diff.additions, diff.deletions))
+        .unwrap_or_default();
+
+    let name = file.path.rsplit('/').next().unwrap_or(&file.path);
+    let path_width = width
+        .saturating_sub(display_width(prefix) + 2 + display_width(&counts))
+        .max(1);
+    let path = truncate_to_width(name, path_width);
+
+    let mut style = Style::default().fg(color);
+    if is_selected {
+        style = style.add_modifier(Modifier::BOLD | Modifier::REVERSED);
+    }
+    let mut spans = vec![Span::styled(format!("{prefix} {icon} {path}"), style)];
+    if !counts.is_empty() {
+        spans.push(Span::styled(counts, Style::default().add_modifier(Modifier::DIM)));
+    }
+    truncate_to_width_line(Line::from(spans), width)
+}
+
+fn render_files_divider(f: &mut Frame, area: Rect, app: &App) {
+    let color = if app.dragging_files_divider {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+    let line = Line::from(Span::styled("│", Style::default().fg(color)));
+    let lines = vec![line; area.height as usize];
+    f.render_widget(Paragraph::new(lines), area);
+}
+
+fn render_diff_card(
+    f: &mut Frame,
+    area: Rect,
+    app: &App,
+    visible: &crate::app::right_panel_lines::VisibleRightPanelLines<'_>,
+    layout: &FilesPanelLayout,
+    detail_focused: bool,
+) {
+    let diff_focused = detail_focused && app.files_panel_focus == FilesPanelFocus::Diff;
+    let border_color = if diff_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+    let title = format!(" Diff ({}) ", app.diff_view_mode.label());
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(border_color))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let content_width = layout.diff_text_width;
+    let mut content_lines: Vec<Line> = Vec::new();
+    for line in visible.visible.iter() {
+        content_lines.push(render_content_line(line, None, content_width));
+    }
+    f.render_widget(Paragraph::new(content_lines), inner);
+}
+
+fn truncate_to_width_line(line: Line<'static>, width: usize) -> Line<'static> {
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    if display_width(&text) <= width {
+        return line;
+    }
+    Line::from(Span::raw(truncate_to_width(&text, width)))
 }
 
 fn render_placeholder(f: &mut Frame, area: Rect) {
@@ -121,6 +326,7 @@ fn render_placeholder(f: &mut Frame, area: Rect) {
 fn build_tab_line(
     app: &App,
     sections_count: usize,
+    files_count: usize,
     content_width: usize,
     max_scroll: usize,
     clamped_scroll: usize,
@@ -129,26 +335,30 @@ fn build_tab_line(
 ) -> Line<'static> {
     let desc_active = app.right_mode == RightPanelMode::Description;
     let comments_active = app.right_mode == RightPanelMode::Comments;
+    let files_active = app.right_mode == RightPanelMode::Files;
 
-    let desc_style = if desc_active {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-    } else {
-        Style::default().add_modifier(Modifier::DIM)
+    let tab_style = |active: bool| {
+        if active {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default().add_modifier(Modifier::DIM)
+        }
     };
-    let comments_style = if comments_active {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-    } else {
-        Style::default().add_modifier(Modifier::DIM)
-    };
+    let desc_style = tab_style(desc_active);
+    let comments_style = tab_style(comments_active);
+    let files_style = tab_style(files_active);
 
     let comments_label = if sections_count > 0 {
         format!("Comments ({sections_count})")
     } else {
         "Comments".to_string()
+    };
+    let files_label = if files_count > 0 {
+        format!("Files ({files_count})")
+    } else {
+        "Files".to_string()
     };
 
     let filter_suffix = if comments_active && app.comment_status_filter != CommentStatusFilter::All {
@@ -168,6 +378,8 @@ fn build_tab_line(
         Span::styled("Description", desc_style),
         Span::raw(" "),
         Span::styled(comments_label, comments_style),
+        Span::raw(" "),
+        Span::styled(files_label, files_style),
     ];
     if !filter_suffix.is_empty() {
         spans.push(Span::styled(

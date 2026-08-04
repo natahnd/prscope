@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::api::types::{NormalizedPullRequest, PrThread, PullRequestDetail};
+use crate::api::types::{NormalizedPullRequest, PrFileChange, PrThread, PullRequestDetail};
 use crate::providers::ProviderClient;
 
 use super::pr_key::pr_key_for;
@@ -13,6 +13,7 @@ use super::AppEvent;
 pub struct PullRequestDetailState {
     pub detail: Option<PullRequestDetail>,
     pub threads: Vec<PrThread>,
+    pub files: Vec<PrFileChange>,
     pub loading: bool,
     pub error: Option<String>,
 }
@@ -59,18 +60,21 @@ pub fn spawn_detail_fetch(
     tokio::spawn(async move {
         let result = tokio::try_join!(
             client.get_pull_request(&project, &pr.repository_id, pr.id),
-            client.list_pull_request_threads(&project, &pr.repository_id, pr.id)
+            client.list_pull_request_threads(&project, &pr.repository_id, pr.id),
+            client.list_pull_request_file_changes(&project, &pr.repository_id, pr.id)
         );
         let state = match result {
-            Ok((detail, threads)) => PullRequestDetailState {
+            Ok((detail, threads, files)) => PullRequestDetailState {
                 detail: Some(detail),
                 threads,
+                files,
                 loading: false,
                 error: None,
             },
             Err(err) => PullRequestDetailState {
                 detail: None,
                 threads: vec![],
+                files: vec![],
                 loading: false,
                 error: Some(err.to_string()),
             },

@@ -11,6 +11,8 @@ use crate::providers::ProviderClient;
 
 use super::comment_activity::CommentActivity;
 use super::detail_cache::{DetailCache, PullRequestDetailState};
+use super::file_diff_cache::FileDiffState;
+use super::files_panel::{DiffViewMode, FilesPanelFocus, DEFAULT_FILES_LIST_WIDTH_RATIO};
 use super::filter_modal::FilterModalState;
 use super::layout::{compute_layout_geometry, LayoutGeometry, LayoutOptions, DEFAULT_LEFT_WIDTH_RATIO};
 use super::pr_key::pr_key_for;
@@ -27,6 +29,25 @@ pub enum PanelFocus {
 pub enum RightPanelMode {
     Description,
     Comments,
+    Files,
+}
+
+impl RightPanelMode {
+    pub fn next(self) -> Self {
+        match self {
+            RightPanelMode::Description => RightPanelMode::Comments,
+            RightPanelMode::Comments => RightPanelMode::Files,
+            RightPanelMode::Files => RightPanelMode::Description,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            RightPanelMode::Description => RightPanelMode::Files,
+            RightPanelMode::Comments => RightPanelMode::Description,
+            RightPanelMode::Files => RightPanelMode::Comments,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +100,10 @@ pub enum AppEvent {
         key: String,
         activity: CommentActivity,
     },
+    FileDiffLoaded {
+        key: String,
+        state: FileDiffState,
+    },
 }
 
 pub struct App {
@@ -129,6 +154,14 @@ pub struct App {
     pub description_scroll: usize,
     pub comments_scroll: usize,
     pub right_max_scroll: usize,
+    pub selected_file_index: usize,
+    pub file_diff_scroll: usize,
+    pub file_list_scroll: usize,
+    pub file_diffs: std::collections::HashMap<String, FileDiffState>,
+    pub diff_view_mode: DiffViewMode,
+    pub files_panel_focus: FilesPanelFocus,
+    pub files_list_width_ratio: f64,
+    pub dragging_files_divider: bool,
 
     pub left_width_ratio: f64,
     pub dragging_divider: bool,
@@ -195,6 +228,14 @@ impl App {
             description_scroll: 0,
             comments_scroll: 0,
             right_max_scroll: 0,
+            selected_file_index: 0,
+            file_diff_scroll: 0,
+            file_list_scroll: 0,
+            file_diffs: std::collections::HashMap::new(),
+            diff_view_mode: DiffViewMode::Inline,
+            files_panel_focus: FilesPanelFocus::Diff,
+            files_list_width_ratio: DEFAULT_FILES_LIST_WIDTH_RATIO,
+            dragging_files_divider: false,
 
             left_width_ratio: DEFAULT_LEFT_WIDTH_RATIO,
             dragging_divider: false,
@@ -348,5 +389,32 @@ impl App {
             filters.search = Some(self.search_query.clone());
         }
         super::filter_modal::filters_to_labels(&filters)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn right_panel_mode_cycles_forward_through_all_three_tabs() {
+        let mode = RightPanelMode::Description;
+        let mode = mode.next();
+        assert_eq!(mode, RightPanelMode::Comments);
+        let mode = mode.next();
+        assert_eq!(mode, RightPanelMode::Files);
+        let mode = mode.next();
+        assert_eq!(mode, RightPanelMode::Description);
+    }
+
+    #[test]
+    fn right_panel_mode_cycles_backward_through_all_three_tabs() {
+        let mode = RightPanelMode::Description;
+        let mode = mode.prev();
+        assert_eq!(mode, RightPanelMode::Files);
+        let mode = mode.prev();
+        assert_eq!(mode, RightPanelMode::Comments);
+        let mode = mode.prev();
+        assert_eq!(mode, RightPanelMode::Description);
     }
 }

@@ -6,8 +6,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::api::types::{
-    CodeSnippet, NormalizedPullRequest, PrThread, Project, PullRequestDetail, PullRequestFilters,
-    Repository,
+    CodeSnippet, FileDiff, NormalizedPullRequest, PrFileChange, PrThread, Project,
+    PullRequestDetail, PullRequestFilters, Repository,
 };
 
 #[derive(Debug, Clone)]
@@ -50,6 +50,19 @@ pub trait ProviderClient: Send + Sync {
         line: i64,
         radius: i64,
     ) -> Result<Option<CodeSnippet>>;
+    async fn list_pull_request_file_changes(
+        &self,
+        project: &str,
+        repository_id: &str,
+        pull_request_id: i64,
+    ) -> Result<Vec<PrFileChange>>;
+    async fn get_pull_request_file_diff(
+        &self,
+        project: &str,
+        repository_id: &str,
+        pull_request_id: i64,
+        file: &PrFileChange,
+    ) -> Result<FileDiff>;
 }
 
 #[derive(Debug, Clone, Copy)]

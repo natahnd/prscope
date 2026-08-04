@@ -1,6 +1,6 @@
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::api::types::{NormalizedPullRequest, PrComment, PrThread};
+use crate::api::types::{DiffLineKind, FileDiff, NormalizedPullRequest, PrComment, PrThread};
 use crate::humanize::{format_distance_to_now, parse_date};
 
 use super::comment_status::is_resolved_status;
@@ -21,6 +21,11 @@ pub enum LineKind {
     Markdown,
     Blank,
     Empty,
+    DiffHunkHeader,
+    DiffAdded,
+    DiffRemoved,
+    DiffContext,
+    DiffComment,
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +37,7 @@ pub struct ContentLine {
 }
 
 impl ContentLine {
-    fn plain(key: impl Into<String>, kind: LineKind, text: impl Into<String>) -> Self {
+    pub fn plain(key: impl Into<String>, kind: LineKind, text: impl Into<String>) -> Self {
         ContentLine {
             key: key.into(),
             kind,
@@ -50,7 +55,7 @@ impl ContentLine {
         }
     }
 
-    fn styled(key: impl Into<String>, kind: LineKind, text: impl Into<String>, style: Style) -> Self {
+    pub fn styled(key: impl Into<String>, kind: LineKind, text: impl Into<String>, style: Style) -> Self {
         ContentLine {
             key: key.into(),
             kind,
@@ -347,7 +352,123 @@ pub fn line_style_for_kind(kind: LineKind, accent: Option<Color>) -> Style {
             .add_modifier(Modifier::BOLD),
         LineKind::Meta => Style::default().add_modifier(Modifier::DIM),
         LineKind::Blank | LineKind::Body | LineKind::Markdown => Style::default(),
+        LineKind::DiffHunkHeader => Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
+        LineKind::DiffAdded => Style::default().fg(Color::Green),
+        LineKind::DiffRemoved => Style::default().fg(Color::Red),
+        LineKind::DiffContext => Style::default(),
+        LineKind::DiffComment => Style::default().fg(Color::Magenta),
     }
+}
+
+/// Builds the scrollable content lines for the diff pane of the Files tab:
+/// hunk headers, +/-/context lines with old/new line-number gutters, and any
+/// PR comments attached to a line (via `diffing::attach_comments`) rendered
+/// indented immediately below it.
+pub fn build_diff_lines_for_file(diff: &FileDiff, width: usize) -> Vec<ContentLine> {
+    if diff.is_binary {
+        return vec![ContentLine::plain(
+            "binary",
+            LineKind::Empty,
+            "Binary file not shown.",
+        )];
+    }
+    if diff.lines.is_empty() {
+        return vec![ContentLine::plain(
+            "empty-diff",
+            LineKind::Empty,
+            "No changes to display.",
+        )];
+    }
+
+    // "{old:>4} {new:>4} {marker} " — must match the gutter format built
+    // below, so inline comment indentation lines up under the code column.
+    const GUTTER_WIDTH: usize = 12;
+    let mut lines: Vec<ContentLine> = Vec::new();
+    for (i, line) in diff.lines.iter().enumerate() {
+        match line.kind {
+            DiffLineKind::HunkHeader => {
+                lines.push(ContentLine::styled(
+                    format!("h-{i}"),
+                    LineKind::DiffHunkHeader,
+                    truncate_to_width(&line.content, width),
+                    line_style_for_kind(LineKind::DiffHunkHeader, None),
+                ));
+                continue;
+            }
+            _ => {
+                let (kind, marker) = match line.kind {
+                    DiffLineKind::Added => (LineKind::DiffAdded, "+"),
+                    DiffLineKind::Removed => (LineKind::DiffRemoved, "-"),
+                    _ => (LineKind::DiffContext, " "),
+                };
+                let old_no = line
+                    .old_line_no
+                    .map(|n| n.to_string())
+                    .unwrap_or_default();
+                let new_no = line
+                    .new_line_no
+                    .map(|n| n.to_string())
+                    .unwrap_or_default();
+                let gutter = format!("{old_no:>4} {new_no:>4} {marker} ");
+                let content_width = width.saturating_sub(gutter.chars().count()).max(1);
+                let text = format!(
+                    "{gutter}{}",
+                    truncate_to_width(&line.content, content_width)
+                );
+                lines.push(ContentLine::styled(
+                    format!("l-{i}"),
+                    kind,
+                    text,
+                    line_style_for_kind(kind, None),
+                ));
+            }
+        }
+
+        if !line.comments.is_empty() {
+            for comment in &line.comments {
+                push_diff_comment_lines(&mut lines, i, comment, width, GUTTER_WIDTH);
+            }
+        }
+    }
+    lines
+}
+
+fn push_diff_comment_lines(
+    lines: &mut Vec<ContentLine>,
+    line_index: usize,
+    comment: &PrComment,
+    width: usize,
+    gutter_width: usize,
+) {
+    let indent = " ".repeat(gutter_width);
+    let prefix = format!("dc-{line_index}-{}", comment.id);
+    let meta = format!(
+        "{indent}│ {} · {}",
+        comment.author,
+        format_distance_to_now(parse_date(&comment.published_at), true)
+    );
+    lines.push(ContentLine::styled(
+        format!("{prefix}-meta"),
+        LineKind::DiffComment,
+        truncate_to_width(&meta, width),
+        line_style_for_kind(LineKind::DiffComment, None),
+    ));
+    let body_width = width.saturating_sub(gutter_width + 2).max(1);
+    for (i, styled_line) in render_markdown_to_lines(&strip_html(&comment.content), body_width)
+        .into_iter()
+        .enumerate()
+    {
+        let text = format!("{indent}│ {}", plain_from_styled(&styled_line));
+        lines.push(ContentLine::plain(
+            format!("{prefix}-b-{i}"),
+            LineKind::DiffComment,
+            truncate_to_width(&text, width),
+        ));
+    }
+}
+
+fn plain_from_styled(line: &StyledLine) -> String {
+    line.0.iter().map(|(t, _)| t.as_str()).collect()
 }
 
 #[cfg(test)]
@@ -398,5 +519,80 @@ mod tests {
     fn resolved_header_includes_status_tag() {
         let t = thread(1, "fixed", Some("a.rs"));
         assert_eq!(format_thread_header(&t), "a.rs: Line 10 [fixed]");
+    }
+
+    #[test]
+    fn diff_lines_render_hunk_header_and_gutters() {
+        use crate::api::types::{PrFileChange, PrFileChangeType};
+        use crate::diffing::build_file_diff;
+
+        let diff = build_file_diff(
+            PrFileChange {
+                path: "a.rs".into(),
+                old_path: None,
+                change_type: PrFileChangeType::Edit,
+            },
+            "a\nb\nc\n",
+            "a\nX\nc\n",
+        );
+        let lines = build_diff_lines_for_file(&diff, 80);
+        assert!(lines.iter().any(|l| l.kind == LineKind::DiffHunkHeader));
+        assert!(lines.iter().any(|l| l.kind == LineKind::DiffAdded));
+        assert!(lines.iter().any(|l| l.kind == LineKind::DiffRemoved));
+    }
+
+    #[test]
+    fn diff_lines_render_binary_placeholder() {
+        use crate::api::types::{FileDiff, PrFileChange, PrFileChangeType};
+
+        let diff = FileDiff {
+            file: PrFileChange {
+                path: "img.png".into(),
+                old_path: None,
+                change_type: PrFileChangeType::Edit,
+            },
+            lines: vec![],
+            additions: 0,
+            deletions: 0,
+            is_binary: true,
+        };
+        let lines = build_diff_lines_for_file(&diff, 80);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].plain_text().contains("Binary"));
+    }
+
+    #[test]
+    fn diff_lines_include_attached_comments() {
+        use crate::api::types::{PrFileChange, PrFileChangeType, PrThread};
+        use crate::diffing::{attach_comments, build_file_diff};
+
+        let mut diff = build_file_diff(
+            PrFileChange {
+                path: "a.rs".into(),
+                old_path: None,
+                change_type: PrFileChangeType::Edit,
+            },
+            "a\nb\nc\n",
+            "a\nX\nc\n",
+        );
+        attach_comments(
+            &mut diff,
+            &[PrThread {
+                id: 1,
+                status: "active".into(),
+                file_path: Some("a.rs".into()),
+                line: Some(2),
+                line_end: None,
+                comments: vec![PrComment {
+                    id: 1,
+                    author: "Alice".into(),
+                    content: "why?".into(),
+                    published_at: "2024-01-01T00:00:00Z".into(),
+                }],
+            }],
+        );
+        let lines = build_diff_lines_for_file(&diff, 80);
+        assert!(lines.iter().any(|l| l.kind == LineKind::DiffComment));
+        assert!(lines.iter().any(|l| l.plain_text().contains("Alice")));
     }
 }
