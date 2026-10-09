@@ -5,6 +5,7 @@ pub mod comment_activity;
 pub mod comment_status;
 pub mod detail_cache;
 pub mod file_diff_cache;
+pub mod file_filter;
 pub mod file_list_rows;
 pub mod files_panel;
 pub mod filter_modal;

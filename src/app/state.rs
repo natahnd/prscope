@@ -12,8 +12,9 @@ use crate::providers::ProviderClient;
 use super::comment_activity::CommentActivity;
 use super::detail_cache::{DetailCache, PullRequestDetailState};
 use super::file_diff_cache::FileDiffState;
-use super::files_panel::{DiffViewMode, FilesPanelFocus, DEFAULT_FILES_LIST_WIDTH_RATIO};
+use super::file_filter::file_indices_for_filter;
 use super::filter_modal::FilterModalState;
+use super::files_panel::{DEFAULT_FILES_LIST_WIDTH_RATIO, DiffViewMode, FilesPanelFocus};
 use super::layout::{compute_layout_geometry, LayoutGeometry, LayoutOptions, DEFAULT_LEFT_WIDTH_RATIO};
 use super::pr_key::pr_key_for;
 use super::review_status::{matches_approved_by_filter, matches_author_filter, matches_review_status_filter};
@@ -63,6 +64,38 @@ impl CommentStatusFilter {
             CommentStatusFilter::All => CommentStatusFilter::Active,
             CommentStatusFilter::Active => CommentStatusFilter::Resolved,
             CommentStatusFilter::Resolved => CommentStatusFilter::All,
+        }
+    }
+}
+
+/// Which changed files appear in the Files tab list and combined diff stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilesFilter {
+    All,
+    /// Only files that have at least one file-level thread matching `status`.
+    WithComments(CommentStatusFilter),
+}
+
+impl FilesFilter {
+    pub fn next(self) -> Self {
+        match self {
+            FilesFilter::All => FilesFilter::WithComments(CommentStatusFilter::All),
+            FilesFilter::WithComments(CommentStatusFilter::All) => {
+                FilesFilter::WithComments(CommentStatusFilter::Active)
+            }
+            FilesFilter::WithComments(CommentStatusFilter::Active) => {
+                FilesFilter::WithComments(CommentStatusFilter::Resolved)
+            }
+            FilesFilter::WithComments(CommentStatusFilter::Resolved) => FilesFilter::All,
+        }
+    }
+
+    pub fn tab_suffix(self) -> Option<&'static str> {
+        match self {
+            FilesFilter::All => None,
+            FilesFilter::WithComments(CommentStatusFilter::All) => Some("with comments"),
+            FilesFilter::WithComments(CommentStatusFilter::Active) => Some("active comments only"),
+            FilesFilter::WithComments(CommentStatusFilter::Resolved) => Some("resolved comments only"),
         }
     }
 }
@@ -160,8 +193,11 @@ pub struct App {
     pub file_diffs: std::collections::HashMap<String, FileDiffState>,
     pub diff_view_mode: DiffViewMode,
     pub files_panel_focus: FilesPanelFocus,
+    pub files_filter: FilesFilter,
     pub files_list_width_ratio: f64,
     pub dragging_files_divider: bool,
+
+    pub collapsed_hunk_keys: HashSet<String>,
 
     pub left_width_ratio: f64,
     pub dragging_divider: bool,
@@ -234,8 +270,10 @@ impl App {
             file_diffs: std::collections::HashMap::new(),
             diff_view_mode: DiffViewMode::Inline,
             files_panel_focus: FilesPanelFocus::Diff,
+            files_filter: FilesFilter::All,
             files_list_width_ratio: DEFAULT_FILES_LIST_WIDTH_RATIO,
             dragging_files_divider: false,
+            collapsed_hunk_keys: HashSet::new(),
 
             left_width_ratio: DEFAULT_LEFT_WIDTH_RATIO,
             dragging_divider: false,
@@ -358,6 +396,29 @@ impl App {
         }
     }
 
+    /// Indices into [`PullRequestDetailState::files`] shown in the Files tab for
+    /// the current [`FilesFilter`].
+    pub fn displayed_file_indices(&self) -> Vec<usize> {
+        file_indices_for_filter(
+            &self.detail_state.files,
+            &self.detail_state.threads,
+            self.files_filter,
+        )
+    }
+
+    pub fn displayed_file_count(&self) -> usize {
+        self.displayed_file_indices().len()
+    }
+
+    pub fn clamp_file_selection(&mut self) {
+        let count = self.displayed_file_count();
+        if count == 0 {
+            self.selected_file_index = 0;
+        } else {
+            self.selected_file_index = self.selected_file_index.min(count - 1);
+        }
+    }
+
     /// Mirrors `sortProjects`/`filtered` in ProjectPicker.tsx: last-used
     /// project pinned first, then alphabetical, then narrowed by search.
     pub fn filtered_projects(&self) -> Vec<&Project> {
@@ -408,13 +469,24 @@ mod tests {
     }
 
     #[test]
-    fn right_panel_mode_cycles_backward_through_all_three_tabs() {
-        let mode = RightPanelMode::Description;
-        let mode = mode.prev();
-        assert_eq!(mode, RightPanelMode::Files);
-        let mode = mode.prev();
-        assert_eq!(mode, RightPanelMode::Comments);
-        let mode = mode.prev();
-        assert_eq!(mode, RightPanelMode::Description);
+    fn files_filter_cycles_through_comment_statuses() {
+        let filter = FilesFilter::All;
+        let filter = filter.next();
+        assert_eq!(
+            filter,
+            FilesFilter::WithComments(CommentStatusFilter::All)
+        );
+        let filter = filter.next();
+        assert_eq!(
+            filter,
+            FilesFilter::WithComments(CommentStatusFilter::Active)
+        );
+        let filter = filter.next();
+        assert_eq!(
+            filter,
+            FilesFilter::WithComments(CommentStatusFilter::Resolved)
+        );
+        let filter = filter.next();
+        assert_eq!(filter, FilesFilter::All);
     }
 }

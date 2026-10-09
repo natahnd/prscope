@@ -9,6 +9,7 @@ use crate::app::filter_modal::{
     DRAFT_OPTIONS, REVIEW_STATUS_OPTIONS, STATUS_OPTIONS,
 };
 use crate::app::state::App;
+use crate::app::ui::styles::{filter_column_header, filter_option_style, pad_text_to_width};
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let Some(state) = app.filter_modal.as_ref() else {
@@ -166,44 +167,32 @@ fn render_column(
     options: Vec<String>,
     selected: usize,
 ) {
-    let header_style = if active {
-        Style::default().add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let mut lines = vec![Line::from(Span::styled(header.to_string(), header_style))];
+    let col_width = area.width as usize;
+    let header_text = pad_text_to_width(header, col_width, filter_column_header(active));
+    let mut lines = vec![Line::from(header_text)];
     for (i, opt) in options.iter().enumerate() {
         let is_selected = i == selected;
         let prefix = if is_selected { "▶ " } else { "  " };
-        let style = if is_selected {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default()
-        };
-        lines.push(Line::from(Span::styled(format!("{prefix}{opt}"), style)));
+        let style = filter_option_style(active, is_selected);
+        let text = format!("{prefix}{opt}");
+        lines.push(Line::from(pad_text_to_width(&text, col_width, style)));
     }
     f.render_widget(Paragraph::new(lines), area);
 }
 
 fn render_people_column(f: &mut Frame, area: Rect, state: &FilterModalState) {
+    let col_width = area.width as usize;
     let active = state.section == FilterSection::Toggles;
-    let header_style = if active {
-        Style::default().add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
+    let header_text = pad_text_to_width("People", col_width, filter_column_header(active));
     let is_selected = active;
     let prefix = if is_selected { "▶ " } else { "  " };
-    let style = if is_selected {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
+    let style = filter_option_style(active, is_selected);
     let checkbox = if state.reviewer_me { "[x]" } else { "[ ]" };
     let lines = vec![
-        Line::from(Span::styled("People", header_style)),
-        Line::from(Span::styled(
-            format!("{prefix}{checkbox} Reviewer: me"),
+        Line::from(header_text),
+        Line::from(pad_text_to_width(
+            &format!("{prefix}{checkbox} Reviewer: me"),
+            col_width,
             style,
         )),
     ];

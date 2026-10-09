@@ -4,16 +4,16 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::api::types::PrFileChangeType;
 use crate::app::file_diff_cache::file_diff_key;
 use crate::app::files_panel::{FilesPanelFocus, FilesPanelLayout, FILES_DIVIDER_WIDTH};
 use crate::app::right_panel_lines::{
-    count_comment_sections, get_visible_right_panel_lines, line_style_for_kind,
-    right_panel_content_width, ContentLine, LineKind, CHROME_ROWS,
+    apply_hunk_band, count_comment_sections, get_visible_right_panel_lines,
+    line_style_for_kind, right_panel_content_width, ContentLine, LineKind, CHROME_ROWS,
 };
-use crate::app::state::{App, CommentStatusFilter, PanelFocus, RightPanelMode};
+use crate::app::state::{App, CommentStatusFilter, FilesFilter, PanelFocus, RightPanelMode};
 use crate::app::text_selection::{normalize_selection, row_highlight_range};
 use crate::app::text_width::{display_width, truncate_to_width};
+use crate::app::ui::styles::{detail_tab_style, file_list_counts_style, file_list_row_style, pad_text_to_width};
 use crate::app::update::current_right_panel_lines;
 
 pub fn render(f: &mut Frame, area: Rect, app: &App) {
@@ -73,7 +73,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     );
 
     let sections_count = count_comment_sections(&app.detail_state.threads, app.comment_status_filter);
-    let files_count = app.detail_state.files.len();
+    let total_files = app.detail_state.files.len();
+    let displayed_files = app.displayed_file_count();
 
     if app.right_mode == RightPanelMode::Files {
         let layout = FilesPanelLayout::compute(app);
@@ -87,7 +88,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         let tab_line = build_tab_line(
             app,
             sections_count,
-            files_count,
+            total_files,
+            displayed_files,
             content_width,
             visible.max_scroll,
             visible.clamped_scroll,
@@ -123,7 +125,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let tab_line = build_tab_line(
         app,
         sections_count,
-        files_count,
+        total_files,
+        displayed_files,
         content_width,
         visible.max_scroll,
         visible.clamped_scroll,
@@ -140,16 +143,6 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
         content_lines.push(render_content_line(line, highlight, content_width));
     }
     f.render_widget(Paragraph::new(content_lines), rows[3]);
-}
-
-fn file_change_color(change_type: PrFileChangeType) -> Color {
-    match change_type {
-        PrFileChangeType::Add => Color::Green,
-        PrFileChangeType::Edit => Color::Yellow,
-        PrFileChangeType::Delete => Color::Red,
-        PrFileChangeType::Rename => Color::Cyan,
-        PrFileChangeType::Other => Color::Gray,
-    }
 }
 
 fn render_file_list_card(
@@ -176,11 +169,16 @@ fn render_file_list_card(
     f.render_widget(block, area);
 
     let width = layout.list_text_width;
-    let files = &app.detail_state.files;
-    if files.is_empty() {
+    let indices = app.displayed_file_indices();
+    if indices.is_empty() {
+        let message = if app.files_filter != FilesFilter::All {
+            "No files match filter"
+        } else {
+            "No files"
+        };
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "No files",
+                message,
                 Style::default().add_modifier(Modifier::DIM),
             ))),
             inner,
@@ -188,12 +186,17 @@ fn render_file_list_card(
         return;
     }
 
+    let displayed: Vec<&crate::api::types::PrFileChange> = indices
+        .iter()
+        .map(|i| &app.detail_state.files[*i])
+        .collect();
+
     let available_rows = layout.list_inner_height;
-    let selected = app.selected_file_index.min(files.len() - 1);
+    let selected = app.selected_file_index.min(displayed.len() - 1);
     let start = file_list_scroll_start(app.file_list_scroll, selected, available_rows);
 
     let mut lines: Vec<Line> = Vec::new();
-    for (idx, file) in files
+    for (idx, file) in displayed
         .iter()
         .enumerate()
         .skip(start)
@@ -224,7 +227,8 @@ fn render_file_row(
     let is_selected = idx == selected;
     let prefix = if is_selected { "▶" } else { " " };
     let icon = file.change_type.icon();
-    let color = file_change_color(file.change_type);
+    let row_style = file_list_row_style(file.change_type, is_selected);
+    let row_bg = row_style.bg.unwrap_or(Color::Reset);
 
     let counts = app
         .current_detail_key
@@ -238,20 +242,39 @@ fn render_file_row(
         .unwrap_or_default();
 
     let name = file.path.rsplit('/').next().unwrap_or(&file.path);
+    let counts_width = display_width(&counts);
     let path_width = width
-        .saturating_sub(display_width(prefix) + 2 + display_width(&counts))
+        .saturating_sub(display_width(prefix) + 2 + counts_width)
         .max(1);
     let path = truncate_to_width(name, path_width);
 
-    let mut style = Style::default().fg(color);
-    if is_selected {
-        style = style.add_modifier(Modifier::BOLD | Modifier::REVERSED);
-    }
-    let mut spans = vec![Span::styled(format!("{prefix} {icon} {path}"), style)];
+    let main = format!("{prefix} {icon} {path}");
+    let mut spans = if is_selected {
+        vec![pad_text_to_width(
+            &main,
+            width.saturating_sub(counts_width),
+            row_style,
+        )]
+    } else {
+        vec![Span::styled(main, row_style)]
+    };
     if !counts.is_empty() {
-        spans.push(Span::styled(counts, Style::default().add_modifier(Modifier::DIM)));
+        let counts_style = if is_selected {
+            file_list_counts_style(row_bg)
+        } else {
+            Style::default().add_modifier(Modifier::DIM)
+        };
+        if is_selected {
+            spans.push(pad_text_to_width(
+                &counts,
+                counts_width.max(1),
+                counts_style,
+            ));
+        } else {
+            spans.push(Span::styled(counts, counts_style));
+        }
     }
-    truncate_to_width_line(Line::from(spans), width)
+    Line::from(spans)
 }
 
 fn render_files_divider(f: &mut Frame, area: Rect, app: &App) {
@@ -297,14 +320,6 @@ fn render_diff_card(
     f.render_widget(Paragraph::new(content_lines), inner);
 }
 
-fn truncate_to_width_line(line: Line<'static>, width: usize) -> Line<'static> {
-    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-    if display_width(&text) <= width {
-        return line;
-    }
-    Line::from(Span::raw(truncate_to_width(&text, width)))
-}
-
 fn render_placeholder(f: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -326,7 +341,8 @@ fn render_placeholder(f: &mut Frame, area: Rect) {
 fn build_tab_line(
     app: &App,
     sections_count: usize,
-    files_count: usize,
+    total_files: usize,
+    displayed_files: usize,
     content_width: usize,
     max_scroll: usize,
     clamped_scroll: usize,
@@ -337,31 +353,25 @@ fn build_tab_line(
     let comments_active = app.right_mode == RightPanelMode::Comments;
     let files_active = app.right_mode == RightPanelMode::Files;
 
-    let tab_style = |active: bool| {
-        if active {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        } else {
-            Style::default().add_modifier(Modifier::DIM)
-        }
-    };
-    let desc_style = tab_style(desc_active);
-    let comments_style = tab_style(comments_active);
-    let files_style = tab_style(files_active);
-
     let comments_label = if sections_count > 0 {
-        format!("Comments ({sections_count})")
+        format!(" Comments ({sections_count}) ")
     } else {
-        "Comments".to_string()
+        " Comments ".to_string()
     };
-    let files_label = if files_count > 0 {
-        format!("Files ({files_count})")
+    let files_label = if app.files_filter != FilesFilter::All {
+        format!(" Files ({displayed_files}/{total_files}) ")
+    } else if total_files > 0 {
+        format!(" Files ({total_files}) ")
     } else {
-        "Files".to_string()
+        " Files ".to_string()
     };
 
-    let filter_suffix = if comments_active && app.comment_status_filter != CommentStatusFilter::All {
+    let filter_suffix = if files_active {
+        app.files_filter
+            .tab_suffix()
+            .map(|suffix| format!(" · {suffix}"))
+            .unwrap_or_default()
+    } else if comments_active && app.comment_status_filter != CommentStatusFilter::All {
         format!(
             " · {}",
             if app.comment_status_filter == CommentStatusFilter::Active {
@@ -375,11 +385,9 @@ fn build_tab_line(
     };
 
     let mut spans = vec![
-        Span::styled("Description", desc_style),
-        Span::raw(" "),
-        Span::styled(comments_label, comments_style),
-        Span::raw(" "),
-        Span::styled(files_label, files_style),
+        Span::styled(" Description ", detail_tab_style(desc_active)),
+        Span::styled(comments_label, detail_tab_style(comments_active)),
+        Span::styled(files_label, detail_tab_style(files_active)),
     ];
     if !filter_suffix.is_empty() {
         spans.push(Span::styled(
@@ -409,10 +417,14 @@ fn build_tab_line(
 }
 
 fn display_spans(line: &ContentLine) -> Vec<(String, Style)> {
-    if line.kind == LineKind::Markdown {
-        return line.spans.clone();
+    if line.kind == LineKind::Markdown || line.spans.len() > 1 {
+        return line
+            .spans
+            .iter()
+            .map(|(t, s)| (t.clone(), apply_hunk_band(*s, line.hunk_band)))
+            .collect();
     }
-    let style = line_style_for_kind(line.kind, line.accent);
+    let style = apply_hunk_band(line_style_for_kind(line.kind, line.accent), line.hunk_band);
     let mut text = line.plain_text();
     if text.is_empty() {
         text = " ".to_string();
@@ -428,7 +440,29 @@ fn render_content_line(line: &ContentLine, highlight: Option<(usize, usize)>, co
         ));
     }
     let spans = display_spans(line);
-    Line::from(spans_with_highlight(&spans, highlight, content_width))
+    let padded = pad_spans_to_width(&spans, content_width, line.hunk_band.is_some());
+    Line::from(spans_with_highlight(&padded, highlight, content_width))
+}
+
+fn pad_spans_to_width(
+    spans: &[(String, Style)],
+    content_width: usize,
+    fill_background: bool,
+) -> Vec<(String, Style)> {
+    if !fill_background || spans.is_empty() {
+        return spans.to_vec();
+    }
+    let total: usize = spans.iter().map(|(t, _)| display_width(t)).sum();
+    if total >= content_width {
+        return spans.to_vec();
+    }
+    let pad_style = spans
+        .last()
+        .map(|(_, s)| *s)
+        .unwrap_or(Style::default());
+    let mut out = spans.to_vec();
+    out.push((" ".repeat(content_width - total), pad_style));
+    out
 }
 
 /// Splits `spans` around the highlighted column range and overrides that

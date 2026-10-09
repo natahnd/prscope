@@ -5,6 +5,7 @@ pub mod pr_right_panel;
 pub mod project_picker;
 pub mod provider_picker;
 pub mod status_bar;
+pub mod styles;
 
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};

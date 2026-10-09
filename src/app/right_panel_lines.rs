@@ -25,7 +25,14 @@ pub enum LineKind {
     DiffAdded,
     DiffRemoved,
     DiffContext,
-    DiffComment,
+    /// Connector from code line to a comment callout (`╰─ comment`).
+    DiffCommentConnector,
+    DiffCommentCalloutTop,
+    DiffCommentCalloutMeta,
+    DiffCommentCalloutBody,
+    DiffCommentCalloutBottom,
+    /// Full-width horizontal rule between files in the combined diff stream.
+    FileSeparator,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +41,8 @@ pub struct ContentLine {
     pub kind: LineKind,
     pub spans: Vec<(String, Style)>,
     pub accent: Option<Color>,
+    /// Alternating band index (0/1) within a file for subtle row backgrounds.
+    pub hunk_band: Option<u8>,
 }
 
 impl ContentLine {
@@ -43,6 +52,7 @@ impl ContentLine {
             kind,
             spans: vec![(text.into(), Style::default())],
             accent: None,
+            hunk_band: None,
         }
     }
 
@@ -52,6 +62,7 @@ impl ContentLine {
             kind: LineKind::Markdown,
             spans: line.0,
             accent: None,
+            hunk_band: None,
         }
     }
 
@@ -61,7 +72,13 @@ impl ContentLine {
             kind,
             spans: vec![(text.into(), style)],
             accent: None,
+            hunk_band: None,
         }
+    }
+
+    pub fn with_hunk_band(mut self, band: u8) -> Self {
+        self.hunk_band = Some(band);
+        self
     }
 
     pub fn plain_text(&self) -> String {
@@ -253,6 +270,7 @@ fn build_comment_lines(sections: Vec<Section>, width: usize) -> Vec<ContentLine>
                     kind: LineKind::Header,
                     spans: vec![("General".to_string(), Style::default())],
                     accent: Some(Color::Cyan),
+                    hunk_band: None,
                 });
                 for comment in &comments {
                     push_comment_lines(&mut lines, "general", comment, width);
@@ -270,6 +288,7 @@ fn build_comment_lines(sections: Vec<Section>, width: usize) -> Vec<ContentLine>
                     kind: LineKind::Header,
                     spans: vec![(header, Style::default())],
                     accent: Some(accent),
+                    hunk_band: None,
                 });
                 for comment in &thread.comments {
                     push_comment_lines(&mut lines, &format!("t-{}", thread.id), comment, width);
@@ -352,11 +371,38 @@ pub fn line_style_for_kind(kind: LineKind, accent: Option<Color>) -> Style {
             .add_modifier(Modifier::BOLD),
         LineKind::Meta => Style::default().add_modifier(Modifier::DIM),
         LineKind::Blank | LineKind::Body | LineKind::Markdown => Style::default(),
+        LineKind::FileSeparator => Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::DIM),
         LineKind::DiffHunkHeader => Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM),
         LineKind::DiffAdded => Style::default().fg(Color::Green),
         LineKind::DiffRemoved => Style::default().fg(Color::Red),
         LineKind::DiffContext => Style::default(),
-        LineKind::DiffComment => Style::default().fg(Color::Magenta),
+        LineKind::DiffCommentConnector => Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::DIM),
+        LineKind::DiffCommentCalloutTop | LineKind::DiffCommentCalloutBottom => Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::DIM),
+        LineKind::DiffCommentCalloutMeta => Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
+        LineKind::DiffCommentCalloutBody => Style::default().fg(Color::Magenta),
+    }
+}
+
+/// Subtle alternating backgrounds so adjacent hunks read as separate segments.
+pub fn hunk_band_background(band: u8) -> Color {
+    match band % 2 {
+        0 => Color::Rgb(26, 26, 32),
+        _ => Color::Rgb(34, 34, 42),
+    }
+}
+
+pub fn apply_hunk_band(style: Style, band: Option<u8>) -> Style {
+    match band {
+        Some(b) => style.bg(hunk_band_background(b)),
+        None => style,
     }
 }
 
@@ -440,30 +486,130 @@ fn push_diff_comment_lines(
     width: usize,
     gutter_width: usize,
 ) {
-    let indent = " ".repeat(gutter_width);
-    let prefix = format!("dc-{line_index}-{}", comment.id);
-    let meta = format!(
-        "{indent}│ {} · {}",
+    push_diff_comment_callout(
+        lines,
+        &format!("dc-{line_index}-{}", comment.id),
+        comment,
+        width,
+        gutter_width,
+        None,
+    );
+}
+
+/// Renders a PR comment as a bordered callout below the annotated code line,
+/// visually separated from the diff (hunk-style annotation pattern).
+pub fn push_diff_comment_callout(
+    lines: &mut Vec<ContentLine>,
+    key_prefix: &str,
+    comment: &PrComment,
+    width: usize,
+    left_pad: usize,
+    hunk_band: Option<u8>,
+) {
+    let pad = " ".repeat(left_pad);
+    let box_width = width.saturating_sub(left_pad).max(8);
+    let inner_width = box_width.saturating_sub(3).max(1);
+    let border_style = apply_hunk_band(
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::DIM),
+        hunk_band,
+    );
+    let meta_style = apply_hunk_band(
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
+        hunk_band,
+    );
+    let body_style = apply_hunk_band(Style::default().fg(Color::Magenta), hunk_band);
+
+    let connector = truncate_to_width(&format!("{pad}╰─ comment"), width);
+    lines.push(tag_hunk_band(
+        ContentLine::styled(
+            format!("{key_prefix}-conn"),
+            LineKind::DiffCommentConnector,
+            connector,
+            line_style_for_kind(LineKind::DiffCommentConnector, None),
+        ),
+        hunk_band,
+    ));
+
+    let top = truncate_to_width(
+        &format!("{pad}┌{}", "─".repeat(box_width.saturating_sub(2))),
+        width,
+    );
+    lines.push(tag_hunk_band(
+        ContentLine::styled(
+            format!("{key_prefix}-top"),
+            LineKind::DiffCommentCalloutTop,
+            top,
+            border_style,
+        ),
+        hunk_band,
+    ));
+
+    let meta_text = format!(
+        "{} · {}",
         comment.author,
         format_distance_to_now(parse_date(&comment.published_at), true)
     );
-    lines.push(ContentLine::styled(
-        format!("{prefix}-meta"),
-        LineKind::DiffComment,
-        truncate_to_width(&meta, width),
-        line_style_for_kind(LineKind::DiffComment, None),
+    let meta_line = truncate_to_width(
+        &format!(
+            "{pad}│ {}",
+            truncate_to_width(&meta_text, inner_width)
+        ),
+        width,
+    );
+    lines.push(tag_hunk_band(
+        ContentLine::styled(
+            format!("{key_prefix}-meta"),
+            LineKind::DiffCommentCalloutMeta,
+            meta_line,
+            meta_style,
+        ),
+        hunk_band,
     ));
-    let body_width = width.saturating_sub(gutter_width + 2).max(1);
-    for (i, styled_line) in render_markdown_to_lines(&strip_html(&comment.content), body_width)
-        .into_iter()
-        .enumerate()
+
+    for (i, styled_line) in
+        render_markdown_to_lines(&strip_html(&comment.content), inner_width).into_iter().enumerate()
     {
-        let text = format!("{indent}│ {}", plain_from_styled(&styled_line));
-        lines.push(ContentLine::plain(
-            format!("{prefix}-b-{i}"),
-            LineKind::DiffComment,
-            truncate_to_width(&text, width),
+        let body_line = truncate_to_width(
+            &format!(
+                "{pad}│ {}",
+                truncate_to_width(&plain_from_styled(&styled_line), inner_width)
+            ),
+            width,
+        );
+        lines.push(tag_hunk_band(
+            ContentLine::styled(
+                format!("{key_prefix}-b-{i}"),
+                LineKind::DiffCommentCalloutBody,
+                body_line,
+                body_style,
+            ),
+            hunk_band,
         ));
+    }
+
+    let bottom = truncate_to_width(
+        &format!("{pad}└{}", "─".repeat(box_width.saturating_sub(2))),
+        width,
+    );
+    lines.push(tag_hunk_band(
+        ContentLine::styled(
+            format!("{key_prefix}-bot"),
+            LineKind::DiffCommentCalloutBottom,
+            bottom,
+            border_style,
+        ),
+        hunk_band,
+    ));
+}
+
+fn tag_hunk_band(line: ContentLine, band: Option<u8>) -> ContentLine {
+    match band {
+        Some(b) => line.with_hunk_band(b),
+        None => line,
     }
 }
 
@@ -592,7 +738,8 @@ mod tests {
             }],
         );
         let lines = build_diff_lines_for_file(&diff, 80);
-        assert!(lines.iter().any(|l| l.kind == LineKind::DiffComment));
+        assert!(lines.iter().any(|l| l.kind == LineKind::DiffCommentCalloutMeta));
         assert!(lines.iter().any(|l| l.plain_text().contains("Alice")));
+        assert!(lines.iter().any(|l| l.plain_text().contains("┌")));
     }
 }
