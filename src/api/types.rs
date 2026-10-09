@@ -674,7 +674,8 @@ pub struct RawPullRequestIteration {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawChangeItem {
-    pub path: String,
+    #[serde(default)]
+    pub path: Option<String>,
     #[serde(rename = "isFolder", default)]
     pub is_folder: bool,
 }

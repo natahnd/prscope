@@ -369,7 +369,7 @@ impl ProviderClient for AzureDevOpsClient {
         Ok(data
             .change_entries
             .into_iter()
-            .filter(|entry| !entry.item.is_folder)
+            .filter(|entry| !entry.item.is_folder && entry.item.path.is_some())
             .map(|entry| {
                 let change_type = crate::api::types::PrFileChangeType::parse(&entry.change_type);
                 let old_path = if change_type == crate::api::types::PrFileChangeType::Rename {
@@ -378,7 +378,7 @@ impl ProviderClient for AzureDevOpsClient {
                     None
                 };
                 PrFileChange {
-                    path: entry.item.path,
+                    path: entry.item.path.expect("filtered above"),
                     old_path,
                     change_type,
                 }
